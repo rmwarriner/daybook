@@ -1,0 +1,45 @@
+name: "💡 Feature / idea"
+description: Propose a capability or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Note that v1 scope is deliberately tight. Ideas outside v1 are welcome — they'll be
+        triaged onto the roadmap (`scope: post-v1`). Check
+        [`docs/design-spec.md`](../blob/main/docs/design-spec.md) §17 first.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What need does this address? Who is it for?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Do you think this is v1 or later?
+      options:
+        - v1
+        - post-v1 / roadmap
+        - Not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Compatibility check
+      description: Daybook's golden rules constrain the design.
+      options:
+        - label: This does not require mutating or deleting a posted journal entry.
+        - label: This does not require Core to take an external dependency.

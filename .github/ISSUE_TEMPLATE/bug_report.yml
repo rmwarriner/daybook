@@ -1,0 +1,58 @@
+name: "🐛 Bug report"
+description: Report a defect in the engine, API, or CLI
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. For **security vulnerabilities**, do not use this form —
+        see [SECURITY.md](../blob/main/SECURITY.md) and report privately.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and its impact.
+      placeholder: Posting a balanced entry returned entry.unbalanced...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, request payloads, or a failing test if you have one.
+      placeholder: |
+        1. Create a book ...
+        2. Post an entry with lines ...
+        3. See error ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Core (domain)
+        - Application (use cases)
+        - Infrastructure (persistence/crypto)
+        - Api
+        - CLI
+        - Build/CI
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: main @ abc1234
+  - type: textarea
+    id: context
+    attributes:
+      label: Logs / correlation id / additional context
+      description: Redact sensitive amounts, memos, and account names.
