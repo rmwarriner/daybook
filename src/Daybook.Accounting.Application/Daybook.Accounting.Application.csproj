@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Application: use cases + ports. Depends inward on Core only. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Daybook.Accounting.Core\Daybook.Accounting.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Infrastructure: adapter implementing Application ports. Depends on
+       Application (and transitively Core). No inward layer depends on this. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Daybook.Accounting.Application\Daybook.Accounting.Application.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Core: the domain engine. Depends on NOTHING but the BCL.
+    Do not add a PackageReference or ProjectReference here without a deliberate
+    decision (CLAUDE.md golden rule: Core stays dependency-free).
+  -->
+
+</Project>

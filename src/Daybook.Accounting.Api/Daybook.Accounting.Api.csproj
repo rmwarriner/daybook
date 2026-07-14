@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Api: thin ASP.NET Core adapter over the Application use cases.
+       Depends inward on Application only for now. When the composition root
+       starts wiring EF/port implementations, it will additionally reference
+       Infrastructure (the outermost layer may compose adapters). -->
+  <ItemGroup>
+    <ProjectReference Include="..\Daybook.Accounting.Application\Daybook.Accounting.Application.csproj" />
+  </ItemGroup>
+
+</Project>

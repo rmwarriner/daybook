@@ -1,0 +1,27 @@
+<Project>
+
+  <!--
+    Central Package Management: every NuGet version is pinned here, once.
+    Individual projects reference packages by name only (no Version attribute).
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Test harness -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+
+    <!-- Assertions: AwesomeAssertions is the free Apache-licensed FluentAssertions
+         fork. Do NOT use FluentAssertions >= 8 (commercially licensed). -->
+    <PackageVersion Include="AwesomeAssertions" Version="9.4.0" />
+
+    <!-- Property-based testing (pure C#, no FSharp.Core dependency) -->
+    <PackageVersion Include="CsCheck" Version="4.7.0" />
+  </ItemGroup>
+
+</Project>

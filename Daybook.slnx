@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Daybook.Accounting.Api/Daybook.Accounting.Api.csproj" />
+    <Project Path="src/Daybook.Accounting.Application/Daybook.Accounting.Application.csproj" />
+    <Project Path="src/Daybook.Accounting.Core/Daybook.Accounting.Core.csproj" />
+    <Project Path="src/Daybook.Accounting.Infrastructure/Daybook.Accounting.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Daybook.Accounting.Api.Tests/Daybook.Accounting.Api.Tests.csproj" />
+    <Project Path="tests/Daybook.Accounting.Application.Tests/Daybook.Accounting.Application.Tests.csproj" />
+    <Project Path="tests/Daybook.Accounting.Core.Tests/Daybook.Accounting.Core.Tests.csproj" />
+    <Project Path="tests/Daybook.Accounting.Infrastructure.Tests/Daybook.Accounting.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>
