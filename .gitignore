@@ -427,3 +427,74 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# === My Edits ===
+## ==========================================
+## Build and Compilation Outputs
+## ==========================================
+[Bb]in/
+[Oo]bj/
+[Loglog]/
+[Tt]est[Rr]esults/
+
+## ==========================================
+## IDE and Editor Specific Files
+## ==========================================
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# Visual Studio Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# JetBrains Rider / Resharper
+.idea/
+*.sln.DotSettings
+
+## ==========================================
+## Operating System Artifacts
+## ==========================================
+.DS_Store
+Thumbs.db
+
+## ==========================================
+## Frontend & Dependency Managers (ASP.NET Core)
+## ==========================================
+node_modules/
+/wwwroot/lib/
+.lock-wscript
+bower_components/
+
+## ==========================================
+## ASP.NET Secrets, Publishing, and Runtime
+## ==========================================
+# User Secrets (Stored outside repo by default, but safe to exclude)
+secrets.json
+
+# Local appsettings overrides
+appsettings.Development.json
+appsettings.Local.json
+
+# Publishing outputs
+*.publish.xml
+*.pubxml
+*.pubxml.user
+
+# EF Core Migrations bundles/idempotent scripts
+*.exe
+*.dll
+*.pdb
+
+## ==========================================
+## Diagnostic and Log Files
+## ==========================================
+*.log
+*.svclog
+*.trx
