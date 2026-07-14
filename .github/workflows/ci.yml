@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Daybook.slnx
+
+      - name: Verify formatting
+        run: dotnet format Daybook.slnx --verify-no-changes --no-restore
+
+      - name: Build
+        run: dotnet build Daybook.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test Daybook.slnx --configuration Release --no-build --verbosity normal
