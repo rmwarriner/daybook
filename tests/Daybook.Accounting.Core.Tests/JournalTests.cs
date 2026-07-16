@@ -322,6 +322,164 @@ public class JournalTests
         journal.Find(id).Should().NotBeNull();
     }
 
+    // ---- Reverse --------------------------------------------------------
+
+    [Fact]
+    public void Reverse_creates_a_new_entry_with_flipped_sides_and_links_both_directions()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty();
+        var originalId = Guid.NewGuid();
+        var reversalId = Guid.NewGuid();
+        journal.CreateDraft(originalId, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(originalId, chart, PostedAtUtc, PostedByUserId);
+
+        var reversalDate = new DateOnly(2026, 7, 20);
+        var result = journal.Reverse(
+            originalId, reversalId, chart, reversalDate, "Reversing paycheck", PostedAtUtc, PostedByUserId);
+
+        result.IsSuccess.Should().BeTrue();
+        var reversal = result.Value;
+        reversal.Id.Should().Be(reversalId);
+        reversal.EntryDate.Should().Be(reversalDate);
+        reversal.Description.Should().Be("Reversing paycheck");
+        reversal.Status.Should().Be(JournalEntryStatus.Posted);
+        reversal.ReversesEntryId.Should().Be(originalId);
+        reversal.Lines.Should().Contain(l =>
+            l.AccountId == checking.Id && l.Side == Side.Credit && l.Amount == Money.Of(100m, Currency.Usd));
+        reversal.Lines.Should().Contain(l =>
+            l.AccountId == salary.Id && l.Side == Side.Debit && l.Amount == Money.Of(100m, Currency.Usd));
+
+        journal.ReversalOf(originalId).Should().Be(reversalId);
+        journal.IsReversed(originalId).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Reverse_assigns_the_next_gapless_sequence_number()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty();
+        var originalId = Guid.NewGuid();
+        journal.CreateDraft(originalId, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(originalId, chart, PostedAtUtc, PostedByUserId).Value.SequenceNumber.Should().Be(1);
+
+        var result = journal.Reverse(
+            originalId, Guid.NewGuid(), chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
+
+        result.Value.SequenceNumber.Should().Be(2);
+    }
+
+    [Fact]
+    public void Reverse_rejects_an_unknown_original_entry()
+    {
+        var (chart, _, _) = AChart();
+        var journal = Journal.Empty();
+
+        var result = journal.Reverse(
+            Guid.NewGuid(), Guid.NewGuid(), chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("entry.not_found");
+    }
+
+    [Fact]
+    public void Reverse_rejects_a_draft_entry()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty();
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+
+        var result = journal.Reverse(id, Guid.NewGuid(), chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("entry.reversal.not_posted");
+    }
+
+    [Fact]
+    public void Reverse_rejects_an_entry_that_has_already_been_reversed()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty();
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+        journal.Reverse(id, Guid.NewGuid(), chart, EntryDate, "First reversal", PostedAtUtc, PostedByUserId);
+
+        var result = journal.Reverse(id, Guid.NewGuid(), chart, EntryDate, "Second reversal", PostedAtUtc, PostedByUserId);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("entry.reversal.already_reversed");
+    }
+
+    [Fact]
+    public void Reverse_rejects_a_duplicate_reversal_id()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty();
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+        var otherId = Guid.NewGuid();
+        journal.CreateDraft(otherId, EntryDate, "Something else", []);
+
+        var result = journal.Reverse(id, otherId, chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("entry.id.duplicate");
+    }
+
+    [Fact]
+    public void Reverse_bubbles_up_a_blank_description_on_the_reversal()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty();
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+
+        var result = journal.Reverse(id, Guid.NewGuid(), chart, EntryDate, "   ", PostedAtUtc, PostedByUserId);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("entry.description.required");
+        journal.ReversalOf(id).Should().BeNull();
+    }
+
+    [Fact]
+    public void Reverse_rejects_if_an_account_was_deactivated_since_the_original_was_posted()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty();
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+
+        chart.Deactivate(checking.Id);
+
+        var result = journal.Reverse(id, Guid.NewGuid(), chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("entry.line.account_inactive");
+        journal.ReversalOf(id).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_reversal_is_itself_reversible()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty();
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+        var reversalId = Guid.NewGuid();
+        journal.Reverse(id, reversalId, chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
+
+        var result = journal.Reverse(
+            reversalId, Guid.NewGuid(), chart, EntryDate, "Reversal of the reversal", PostedAtUtc, PostedByUserId);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
     // ---- Property-based: the central accounting invariant -------------
 
     [Fact]
@@ -380,6 +538,41 @@ public class JournalTests
 
             result.IsFailure.Should().BeTrue();
             result.Error.Code.Should().Be("entry.unbalanced");
+        });
+    }
+
+    [Fact]
+    public void Property_reversing_an_entry_nets_every_affected_account_to_zero()
+    {
+        Gen.Int[1, 1000].Sample(seed =>
+        {
+            var random = new Random(seed);
+            var (chart, checking, salary) = AChart();
+            var journal = Journal.Empty();
+            var id = Guid.NewGuid();
+
+            var debitCount = random.Next(1, 5);
+            var debitAmounts = Enumerable.Range(0, debitCount)
+                .Select(_ => (decimal)random.Next(1, 100_000) / 100m)
+                .ToList();
+            var total = debitAmounts.Sum();
+
+            var lines = debitAmounts.Select(a => ADebit(checking.Id, a))
+                .Append(ACredit(salary.Id, total))
+                .ToArray();
+
+            journal.CreateDraft(id, EntryDate, "Random entry", lines);
+            var original = journal.Post(id, chart, PostedAtUtc, PostedByUserId).Value;
+
+            var reversal = journal
+                .Reverse(id, Guid.NewGuid(), chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId)
+                .Value;
+
+            var netByAccount = original.Lines.Concat(reversal.Lines)
+                .GroupBy(l => l.AccountId)
+                .Select(g => g.Sum(l => l.Side == Side.Debit ? l.Amount.Amount : -l.Amount.Amount));
+
+            netByAccount.Should().OnlyContain(net => net == 0m);
         });
     }
 }

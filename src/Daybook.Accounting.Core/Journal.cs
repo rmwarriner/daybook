@@ -18,6 +18,7 @@ namespace Daybook.Accounting.Core;
 public sealed class Journal
 {
     private readonly Dictionary<Guid, JournalEntry> _byId = [];
+    private readonly Dictionary<Guid, Guid> _reversalOf = [];
     private int _nextSequenceNumber = 1;
 
     private Journal()
@@ -35,6 +36,17 @@ public sealed class Journal
         _byId.Values.Where(e => e.Status == JournalEntryStatus.Posted)
             .OrderBy(e => e.SequenceNumber)
             .ToList();
+
+    /// <summary>
+    /// The id of the entry that reverses <paramref name="originalEntryId"/>,
+    /// or null if it hasn't been reversed. Kept separately from
+    /// <see cref="JournalEntry"/> rather than as a field on it — an
+    /// at-most-one-row link, not a mutation of an already-posted entry.
+    /// </summary>
+    public Guid? ReversalOf(Guid originalEntryId) =>
+        _reversalOf.TryGetValue(originalEntryId, out var reversalId) ? reversalId : null;
+
+    public bool IsReversed(Guid entryId) => _reversalOf.ContainsKey(entryId);
 
     /// <summary>Creates a new draft. A draft may be incomplete — the §5 checklist only applies at post time.</summary>
     public Result<JournalEntry> CreateDraft(
@@ -116,12 +128,103 @@ public sealed class Journal
             return AlreadyPosted(entry);
         }
 
-        if (entry.Lines.Count < 2)
+        var validated = ValidateAndBalance(entry, chart);
+        if (validated.IsFailure)
         {
-            return InsufficientLines(entry);
+            return validated.Error;
         }
 
-        foreach (var line in entry.Lines)
+        var posted = entry.MarkPosted(_nextSequenceNumber, postedAtUtc, postedByUserId);
+        _byId[id] = posted;
+        _nextSequenceNumber++;
+        return posted;
+    }
+
+    /// <summary>
+    /// Posts a new entry that reverses <paramref name="originalEntryId"/>:
+    /// the same lines with every side flipped, linked via
+    /// <see cref="JournalEntry.ReversesEntryId"/> and the reversal index
+    /// (spec §4.3/§4.7/§5). Goes straight to Posted — there is no draft
+    /// stage for a reversal. Re-runs the full §5 checklist against
+    /// <paramref name="chart"/>, since an account referenced by the
+    /// original could have been deactivated or made a placeholder since it
+    /// was posted.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="chart"/> is null.</exception>
+    public Result<JournalEntry> Reverse(
+        Guid originalEntryId,
+        Guid reversalEntryId,
+        ChartOfAccounts chart,
+        DateOnly entryDate,
+        string description,
+        DateTimeOffset postedAtUtc,
+        Guid postedByUserId)
+    {
+        ArgumentNullException.ThrowIfNull(chart);
+
+        var original = Find(originalEntryId);
+        if (original is null)
+        {
+            return EntryNotFound(originalEntryId);
+        }
+
+        if (original.Status != JournalEntryStatus.Posted)
+        {
+            return NotPosted(original);
+        }
+
+        if (IsReversed(originalEntryId))
+        {
+            return AlreadyReversed(original);
+        }
+
+        if (_byId.ContainsKey(reversalEntryId))
+        {
+            return DuplicateId(reversalEntryId);
+        }
+
+        var flippedLines = original.Lines
+            .Select(l => JournalLine.Create(l.AccountId, Flip(l.Side), l.Amount, l.Memo).Value)
+            .ToList();
+
+        var draftResult = JournalEntry.CreateDraft(reversalEntryId, entryDate, description, flippedLines);
+        if (draftResult.IsFailure)
+        {
+            return draftResult.Error;
+        }
+
+        var validated = ValidateAndBalance(draftResult.Value, chart);
+        if (validated.IsFailure)
+        {
+            return validated.Error;
+        }
+
+        var postedReversal = draftResult.Value.MarkPosted(
+            _nextSequenceNumber, postedAtUtc, postedByUserId, reversesEntryId: originalEntryId);
+
+        _byId[reversalEntryId] = postedReversal;
+        _reversalOf[originalEntryId] = reversalEntryId;
+        _nextSequenceNumber++;
+        return postedReversal;
+    }
+
+    private static Side Flip(Side side) => side == Side.Debit ? Side.Credit : Side.Debit;
+
+    /// <summary>
+    /// The shared spec §5 line/balance checklist: at least two lines,
+    /// every account exists/active/non-placeholder, every line in the
+    /// book's base currency, and total debits equal total credits. Shared
+    /// between <see cref="Post"/> and <see cref="Reverse"/> so the two
+    /// can't drift apart.
+    /// </summary>
+    private Result<JournalEntry> ValidateAndBalance(JournalEntry candidate, ChartOfAccounts chart)
+    {
+        if (candidate.Lines.Count < 2)
+        {
+            return InsufficientLines(candidate);
+        }
+
+        foreach (var line in candidate.Lines)
         {
             var account = chart.Find(line.AccountId);
             if (account is null)
@@ -147,7 +250,7 @@ public sealed class Journal
 
         var debitTotal = Money.Zero(Currency.Usd);
         var creditTotal = Money.Zero(Currency.Usd);
-        foreach (var line in entry.Lines)
+        foreach (var line in candidate.Lines)
         {
             if (line.Side == Side.Debit)
             {
@@ -159,15 +262,7 @@ public sealed class Journal
             }
         }
 
-        if (debitTotal != creditTotal)
-        {
-            return Unbalanced(entry, debitTotal, creditTotal);
-        }
-
-        var posted = entry.MarkPosted(_nextSequenceNumber, postedAtUtc, postedByUserId);
-        _byId[id] = posted;
-        _nextSequenceNumber++;
-        return posted;
+        return debitTotal == creditTotal ? candidate : Unbalanced(candidate, debitTotal, creditTotal);
     }
 
     private static Error EntryNotFound(Guid id) => new(
@@ -187,6 +282,18 @@ public sealed class Journal
         ErrorCategory.BusinessRule,
         $"Entry '{entry.Id}' is already posted (sequence {entry.SequenceNumber}).",
         ["This entry cannot be posted again; look it up by its SequenceNumber instead."]);
+
+    private static Error NotPosted(JournalEntry entry) => new(
+        "entry.reversal.not_posted",
+        ErrorCategory.BusinessRule,
+        $"Entry '{entry.Id}' is not posted and cannot be reversed.",
+        ["Post the entry first."]);
+
+    private static Error AlreadyReversed(JournalEntry entry) => new(
+        "entry.reversal.already_reversed",
+        ErrorCategory.BusinessRule,
+        $"Entry '{entry.Id}' has already been reversed.",
+        ["Entries can only be reversed once; look up the existing reversal."]);
 
     private static Error InsufficientLines(JournalEntry entry) => new(
         "entry.lines.insufficient",
