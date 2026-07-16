@@ -32,11 +32,60 @@ public class JournalTests
     [Fact]
     public void Empty_journal_has_no_entries()
     {
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
 
         journal.Find(Guid.NewGuid()).Should().BeNull();
         journal.Drafts.Should().BeEmpty();
         journal.PostedEntries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Empty_stores_the_currency_it_was_constructed_with()
+    {
+        Journal.Empty(Currency.Usd).BaseCurrency.Should().Be(Currency.Usd);
+        Journal.Empty(Currency.Of("EUR")).BaseCurrency.Should().Be(Currency.Of("EUR"));
+    }
+
+    [Fact]
+    public void Empty_rejects_a_null_currency()
+    {
+        var act = () => Journal.Empty(null!);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Posting_uses_the_journals_own_currency_not_a_hardcoded_one()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
+        var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
+        var journal = Journal.Empty(Currency.Of("EUR"));
+        var id = Guid.NewGuid();
+        var eurDebit = JournalLine.Create(checking.Id, Side.Debit, Money.Of(100m, Currency.Of("EUR"))).Value;
+        var eurCredit = JournalLine.Create(salary.Id, Side.Credit, Money.Of(100m, Currency.Of("EUR"))).Value;
+        journal.CreateDraft(id, EntryDate, "Paycheck in EUR", [eurDebit, eurCredit]);
+
+        var result = journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Posting_a_usd_line_against_a_eur_journal_is_a_currency_mismatch()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
+        var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
+        var journal = Journal.Empty(Currency.Of("EUR"));
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Wrong currency", [ADebit(checking.Id, 100m), ADebit(salary.Id, 100m)]);
+
+        var result = journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("entry.line.currency_mismatch");
+        result.Error.Message.Should().Contain("EUR");
     }
 
     // ---- CreateDraft ------------------------------------------------------
@@ -44,7 +93,7 @@ public class JournalTests
     [Fact]
     public void CreateDraft_adds_a_findable_draft()
     {
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
 
         var result = journal.CreateDraft(id, EntryDate, "Groceries", []);
@@ -57,7 +106,7 @@ public class JournalTests
     [Fact]
     public void CreateDraft_rejects_a_duplicate_id()
     {
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Groceries", []);
 
@@ -71,7 +120,7 @@ public class JournalTests
     [Fact]
     public void CreateDraft_bubbles_up_entry_level_validation_failures()
     {
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
 
         var result = journal.CreateDraft(Guid.NewGuid(), EntryDate, "   ", []);
 
@@ -85,7 +134,7 @@ public class JournalTests
     [Fact]
     public void UpdateDraft_updates_the_stored_entry()
     {
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Groceries", []);
 
@@ -98,7 +147,7 @@ public class JournalTests
     [Fact]
     public void UpdateDraft_rejects_an_unknown_entry()
     {
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
 
         var result = journal.UpdateDraft(Guid.NewGuid(), EntryDate, "Whatever", []);
 
@@ -109,7 +158,7 @@ public class JournalTests
     [Fact]
     public void DeleteDraft_removes_a_draft()
     {
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Groceries", []);
 
@@ -122,7 +171,7 @@ public class JournalTests
     [Fact]
     public void DeleteDraft_rejects_an_unknown_entry()
     {
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
 
         var result = journal.DeleteDraft(Guid.NewGuid());
 
@@ -136,7 +185,7 @@ public class JournalTests
     public void Post_a_valid_balanced_entry_succeeds_and_stamps_the_entry()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 1000m), ACredit(salary.Id, 1000m)]);
 
@@ -156,7 +205,7 @@ public class JournalTests
     public void Post_assigns_gapless_increasing_sequence_numbers_across_multiple_posts()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
 
         var sequenceNumbers = new List<int?>();
         for (var i = 0; i < 3; i++)
@@ -175,7 +224,7 @@ public class JournalTests
     public void Post_rejects_an_unknown_entry()
     {
         var (chart, _, _) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
 
         var result = journal.Post(Guid.NewGuid(), chart, PostedAtUtc, PostedByUserId);
 
@@ -187,7 +236,7 @@ public class JournalTests
     public void Post_rejects_an_already_posted_entry()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 10m), ACredit(salary.Id, 10m)]);
         journal.Post(id, chart, PostedAtUtc, PostedByUserId);
@@ -202,7 +251,7 @@ public class JournalTests
     public void Post_rejects_fewer_than_two_lines()
     {
         var (chart, checking, _) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Incomplete", [ADebit(checking.Id, 10m)]);
 
@@ -216,7 +265,7 @@ public class JournalTests
     public void Post_rejects_an_unbalanced_entry_and_reports_the_totals()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Lopsided", [ADebit(checking.Id, 100m), ACredit(salary.Id, 60m)]);
 
@@ -231,7 +280,7 @@ public class JournalTests
     public void Post_rejects_a_line_referencing_an_unknown_account()
     {
         var (chart, checking, _) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Ghost account", [ADebit(checking.Id, 10m), ACredit(Guid.NewGuid(), 10m)]);
 
@@ -246,7 +295,7 @@ public class JournalTests
     {
         var (chart, checking, salary) = AChart();
         chart.Deactivate(checking.Id);
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Inactive", [ADebit(checking.Id, 10m), ACredit(salary.Id, 10m)]);
 
@@ -262,7 +311,7 @@ public class JournalTests
     {
         var (chart, checking, salary) = AChart();
         chart.MarkAsPlaceholder(checking.Id);
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Roll-up only", [ADebit(checking.Id, 10m), ACredit(salary.Id, 10m)]);
 
@@ -277,7 +326,7 @@ public class JournalTests
     public void Post_rejects_a_line_in_a_non_base_currency()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         var eurLine = JournalLine.Create(salary.Id, Side.Credit, Money.Of(10m, Currency.Of("EUR"))).Value;
         journal.CreateDraft(id, EntryDate, "Wrong currency", [ADebit(checking.Id, 10m), eurLine]);
@@ -294,7 +343,7 @@ public class JournalTests
     public void A_posted_entry_cannot_be_updated()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 10m), ACredit(salary.Id, 10m)]);
         journal.Post(id, chart, PostedAtUtc, PostedByUserId);
@@ -310,7 +359,7 @@ public class JournalTests
     public void A_posted_entry_cannot_be_deleted()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 10m), ACredit(salary.Id, 10m)]);
         journal.Post(id, chart, PostedAtUtc, PostedByUserId);
@@ -328,7 +377,7 @@ public class JournalTests
     public void Reverse_creates_a_new_entry_with_flipped_sides_and_links_both_directions()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var originalId = Guid.NewGuid();
         var reversalId = Guid.NewGuid();
         journal.CreateDraft(originalId, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
@@ -358,7 +407,7 @@ public class JournalTests
     public void Reverse_assigns_the_next_gapless_sequence_number()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var originalId = Guid.NewGuid();
         journal.CreateDraft(originalId, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
         journal.Post(originalId, chart, PostedAtUtc, PostedByUserId).Value.SequenceNumber.Should().Be(1);
@@ -373,7 +422,7 @@ public class JournalTests
     public void Reverse_rejects_an_unknown_original_entry()
     {
         var (chart, _, _) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
 
         var result = journal.Reverse(
             Guid.NewGuid(), Guid.NewGuid(), chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
@@ -386,7 +435,7 @@ public class JournalTests
     public void Reverse_rejects_a_draft_entry()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
 
@@ -400,7 +449,7 @@ public class JournalTests
     public void Reverse_rejects_an_entry_that_has_already_been_reversed()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
         journal.Post(id, chart, PostedAtUtc, PostedByUserId);
@@ -416,7 +465,7 @@ public class JournalTests
     public void Reverse_rejects_a_duplicate_reversal_id()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
         journal.Post(id, chart, PostedAtUtc, PostedByUserId);
@@ -433,7 +482,7 @@ public class JournalTests
     public void Reverse_bubbles_up_a_blank_description_on_the_reversal()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
         journal.Post(id, chart, PostedAtUtc, PostedByUserId);
@@ -449,7 +498,7 @@ public class JournalTests
     public void Reverse_rejects_if_an_account_was_deactivated_since_the_original_was_posted()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
         journal.Post(id, chart, PostedAtUtc, PostedByUserId);
@@ -467,7 +516,7 @@ public class JournalTests
     public void A_reversal_is_itself_reversible()
     {
         var (chart, checking, salary) = AChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var id = Guid.NewGuid();
         journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
         journal.Post(id, chart, PostedAtUtc, PostedByUserId);
@@ -489,7 +538,7 @@ public class JournalTests
         {
             var random = new Random(seed);
             var (chart, checking, salary) = AChart();
-            var journal = Journal.Empty();
+            var journal = Journal.Empty(Currency.Usd);
             var id = Guid.NewGuid();
 
             var debitCount = random.Next(1, 5);
@@ -522,7 +571,7 @@ public class JournalTests
         {
             var random = new Random(seed);
             var (chart, checking, salary) = AChart();
-            var journal = Journal.Empty();
+            var journal = Journal.Empty(Currency.Usd);
             var id = Guid.NewGuid();
 
             var debitAmount = (decimal)random.Next(100, 100_000) / 100m;
@@ -548,7 +597,7 @@ public class JournalTests
         {
             var random = new Random(seed);
             var (chart, checking, salary) = AChart();
-            var journal = Journal.Empty();
+            var journal = Journal.Empty(Currency.Usd);
             var id = Guid.NewGuid();
 
             var debitCount = random.Next(1, 5);

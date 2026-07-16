@@ -30,7 +30,7 @@ public class AccountBalancesTests
         var chart = ChartOfAccounts.Empty();
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         Post(journal, chart, Guid.NewGuid(), ADebit(checking.Id, 500m), ACredit(salary.Id, 500m));
         Post(journal, chart, Guid.NewGuid(), ADebit(salary.Id, 120m), ACredit(checking.Id, 120m));
 
@@ -45,7 +45,7 @@ public class AccountBalancesTests
         var chart = ChartOfAccounts.Empty();
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         Post(journal, chart, Guid.NewGuid(), ADebit(checking.Id, 500m), ACredit(salary.Id, 500m));
 
         var balances = AccountBalances.Compute(chart, journal);
@@ -61,7 +61,7 @@ public class AccountBalancesTests
         var electric = chart.AddChild(Guid.NewGuid(), utilities.Id, "Electric", AccountType.Expense).Value;
         var gas = chart.AddChild(Guid.NewGuid(), utilities.Id, "Gas", AccountType.Expense).Value;
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         Post(journal, chart, Guid.NewGuid(), ADebit(electric.Id, 50m), ACredit(checking.Id, 50m));
         Post(journal, chart, Guid.NewGuid(), ADebit(gas.Id, 30m), ACredit(checking.Id, 30m));
 
@@ -77,7 +77,7 @@ public class AccountBalancesTests
         var utilities = chart.AddRoot(Guid.NewGuid(), "Utilities", AccountType.Expense, isPlaceholder: true).Value;
         var electric = chart.AddChild(Guid.NewGuid(), utilities.Id, "Electric", AccountType.Expense).Value;
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         Post(journal, chart, Guid.NewGuid(), ADebit(electric.Id, 50m), ACredit(checking.Id, 50m));
 
         var balances = AccountBalances.Compute(chart, journal);
@@ -92,7 +92,7 @@ public class AccountBalancesTests
         var chart = ChartOfAccounts.Empty();
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
 
-        var balances = AccountBalances.Compute(chart, Journal.Empty());
+        var balances = AccountBalances.Compute(chart, Journal.Empty(Currency.Usd));
 
         balances.Find(checking.Id)!.OwnBalance.Should().Be(Money.Zero(Currency.Usd));
         balances.Find(checking.Id)!.RolledUpBalance.Should().Be(Money.Zero(Currency.Usd));
@@ -104,7 +104,7 @@ public class AccountBalancesTests
         var chart = ChartOfAccounts.Empty();
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         journal.CreateDraft(
             Guid.NewGuid(), EntryDate, "Unposted", [ADebit(checking.Id, 500m), ACredit(salary.Id, 500m)]);
 
@@ -119,7 +119,7 @@ public class AccountBalancesTests
         var chart = ChartOfAccounts.Empty();
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var entryId = Guid.NewGuid();
         Post(journal, chart, entryId, ADebit(checking.Id, 500m), ACredit(salary.Id, 500m));
         journal.Reverse(entryId, Guid.NewGuid(), chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
@@ -133,8 +133,26 @@ public class AccountBalancesTests
     [Fact]
     public void Find_returns_null_for_an_unknown_account()
     {
-        var balances = AccountBalances.Compute(ChartOfAccounts.Empty(), Journal.Empty());
+        var balances = AccountBalances.Compute(ChartOfAccounts.Empty(), Journal.Empty(Currency.Usd));
 
         balances.Find(Guid.NewGuid()).Should().BeNull();
+    }
+
+    [Fact]
+    public void Balances_are_denominated_in_the_journals_own_currency_not_a_hardcoded_one()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
+        var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
+        var journal = Journal.Empty(Currency.Of("EUR"));
+        var id = Guid.NewGuid();
+        var debit = JournalLine.Create(checking.Id, Side.Debit, Money.Of(500m, Currency.Of("EUR"))).Value;
+        var credit = JournalLine.Create(salary.Id, Side.Credit, Money.Of(500m, Currency.Of("EUR"))).Value;
+        journal.CreateDraft(id, EntryDate, "Test entry", [debit, credit]);
+        journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+
+        var balances = AccountBalances.Compute(chart, journal);
+
+        balances.Find(checking.Id)!.OwnBalance.Should().Be(Money.Of(500m, Currency.Of("EUR")));
     }
 }

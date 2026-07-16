@@ -33,7 +33,7 @@ public class TrialBalanceTests
         var chart = ChartOfAccounts.Empty();
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         Post(journal, chart, Guid.NewGuid(), ADebit(checking.Id, 500m), ACredit(salary.Id, 500m));
 
         var trialBalance = TrialBalance.Compute(chart, journal);
@@ -52,7 +52,7 @@ public class TrialBalanceTests
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
         var rent = chart.AddRoot(Guid.NewGuid(), "Rent", AccountType.Expense).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         Post(journal, chart, Guid.NewGuid(), ADebit(checking.Id, 500m), ACredit(salary.Id, 500m));
         Post(journal, chart, Guid.NewGuid(), ADebit(rent.Id, 120m), ACredit(checking.Id, 120m));
 
@@ -68,7 +68,7 @@ public class TrialBalanceTests
         var chart = ChartOfAccounts.Empty();
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         journal.CreateDraft(
             Guid.NewGuid(), EntryDate, "Unposted", [ADebit(checking.Id, 500m), ACredit(salary.Id, 500m)]);
 
@@ -81,7 +81,7 @@ public class TrialBalanceTests
     [Fact]
     public void An_empty_journal_balances_at_zero()
     {
-        var trialBalance = TrialBalance.Compute(ChartOfAccounts.Empty(), Journal.Empty());
+        var trialBalance = TrialBalance.Compute(ChartOfAccounts.Empty(), Journal.Empty(Currency.Usd));
 
         trialBalance.Lines.Should().BeEmpty();
         trialBalance.TotalDebits.Should().Be(Money.Zero(Currency.Usd));
@@ -99,7 +99,7 @@ public class TrialBalanceTests
             var chart = ChartOfAccounts.Empty();
             var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
             var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
-            var journal = Journal.Empty();
+            var journal = Journal.Empty(Currency.Usd);
 
             var entryCount = random.Next(1, 6);
             for (var i = 0; i < entryCount; i++)
@@ -114,5 +114,21 @@ public class TrialBalanceTests
             var trialBalance = act();
             trialBalance.TotalDebits.Should().Be(trialBalance.TotalCredits);
         });
+    }
+
+    [Fact]
+    public void Totals_are_denominated_in_the_journals_own_currency_not_a_hardcoded_one()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
+        var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
+        var journal = Journal.Empty(Currency.Of("EUR"));
+        var debit = JournalLine.Create(checking.Id, Side.Debit, Money.Of(500m, Currency.Of("EUR"))).Value;
+        var credit = JournalLine.Create(salary.Id, Side.Credit, Money.Of(500m, Currency.Of("EUR"))).Value;
+        Post(journal, chart, Guid.NewGuid(), debit, credit);
+
+        var trialBalance = TrialBalance.Compute(chart, journal);
+
+        trialBalance.TotalDebits.Should().Be(Money.Of(500m, Currency.Of("EUR")));
     }
 }

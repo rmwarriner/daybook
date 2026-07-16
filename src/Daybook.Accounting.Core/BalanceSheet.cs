@@ -61,7 +61,7 @@ public sealed class BalanceSheet
             .ToList();
 
         Money Total(IEnumerable<AccountBalance> accountBalances) =>
-            accountBalances.Aggregate(Money.Zero(Currency.Usd), (sum, b) => sum + b.RolledUpBalance);
+            accountBalances.Aggregate(Money.Zero(journal.BaseCurrency), (sum, b) => sum + b.RolledUpBalance);
 
         var assets = RootBalancesOfType(AccountType.Asset);
         var liabilities = RootBalancesOfType(AccountType.Liability);

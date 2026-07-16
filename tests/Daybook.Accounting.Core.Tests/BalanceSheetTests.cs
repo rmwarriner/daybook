@@ -45,7 +45,7 @@ public class BalanceSheetTests
     public void Assets_equal_liabilities_plus_equity_plus_net_income()
     {
         var (chart, checking, equity, loan, salary, rent) = AFullChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         Post(journal, chart, ADebit(checking.Id, 1000m), ACredit(equity.Id, 1000m));
         Post(journal, chart, ADebit(checking.Id, 500m), ACredit(loan.Id, 500m));
         Post(journal, chart, ADebit(checking.Id, 300m), ACredit(salary.Id, 300m));
@@ -68,7 +68,7 @@ public class BalanceSheetTests
     public void Net_income_is_life_to_date_income_minus_expense()
     {
         var (chart, checking, _, _, salary, rent) = AFullChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         Post(journal, chart, ADebit(checking.Id, 300m), ACredit(salary.Id, 300m));
         Post(journal, chart, ADebit(rent.Id, 120m), ACredit(checking.Id, 120m));
 
@@ -84,7 +84,7 @@ public class BalanceSheetTests
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var pettyCash = chart.AddChild(Guid.NewGuid(), checking.Id, "Petty Cash", AccountType.Asset).Value;
         var equity = chart.AddRoot(Guid.NewGuid(), "Owner's Equity", AccountType.Equity).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         Post(journal, chart, ADebit(pettyCash.Id, 50m), ACredit(equity.Id, 50m));
 
         var balanceSheet = BalanceSheet.Compute(chart, journal);
@@ -98,7 +98,7 @@ public class BalanceSheetTests
     public void Draft_entries_are_ignored()
     {
         var (chart, checking, equity, _, _, _) = AFullChart();
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         journal.CreateDraft(
             Guid.NewGuid(), EntryDate, "Unposted", [ADebit(checking.Id, 1000m), ACredit(equity.Id, 1000m)]);
 
@@ -110,7 +110,7 @@ public class BalanceSheetTests
     [Fact]
     public void An_empty_chart_balances_at_zero()
     {
-        var balanceSheet = BalanceSheet.Compute(ChartOfAccounts.Empty(), Journal.Empty());
+        var balanceSheet = BalanceSheet.Compute(ChartOfAccounts.Empty(), Journal.Empty(Currency.Usd));
 
         balanceSheet.Assets.Should().BeEmpty();
         balanceSheet.Liabilities.Should().BeEmpty();
@@ -129,7 +129,7 @@ public class BalanceSheetTests
         {
             var random = new Random(seed);
             var (chart, checking, equity, loan, salary, rent) = AFullChart();
-            var journal = Journal.Empty();
+            var journal = Journal.Empty(Currency.Usd);
 
             Post(journal, chart, ADebit(checking.Id, 1000m), ACredit(equity.Id, 1000m));
 
@@ -157,5 +157,21 @@ public class BalanceSheetTests
             var balanceSheet = act();
             balanceSheet.TotalAssets.Should().Be(balanceSheet.TotalLiabilitiesAndEquity);
         });
+    }
+
+    [Fact]
+    public void Totals_are_denominated_in_the_journals_own_currency_not_a_hardcoded_one()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
+        var equity = chart.AddRoot(Guid.NewGuid(), "Owner's Equity", AccountType.Equity).Value;
+        var journal = Journal.Empty(Currency.Of("EUR"));
+        var debit = JournalLine.Create(checking.Id, Side.Debit, Money.Of(500m, Currency.Of("EUR"))).Value;
+        var credit = JournalLine.Create(equity.Id, Side.Credit, Money.Of(500m, Currency.Of("EUR"))).Value;
+        Post(journal, chart, debit, credit);
+
+        var balanceSheet = BalanceSheet.Compute(chart, journal);
+
+        balanceSheet.TotalAssets.Should().Be(Money.Of(500m, Currency.Of("EUR")));
     }
 }

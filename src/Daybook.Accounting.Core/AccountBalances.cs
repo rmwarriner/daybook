@@ -21,7 +21,7 @@ public sealed class AccountBalances
         ArgumentNullException.ThrowIfNull(chart);
         ArgumentNullException.ThrowIfNull(journal);
 
-        var ownBalances = chart.Accounts.ToDictionary(a => a.Id, _ => Money.Zero(Currency.Usd));
+        var ownBalances = chart.Accounts.ToDictionary(a => a.Id, _ => Money.Zero(journal.BaseCurrency));
         foreach (var entry in journal.PostedEntries)
         {
             foreach (var line in entry.Lines)

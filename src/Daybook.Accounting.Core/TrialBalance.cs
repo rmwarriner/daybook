@@ -41,8 +41,8 @@ public sealed class TrialBalance
             })
             .ToList();
 
-        var totalDebits = Money.Zero(Currency.Usd);
-        var totalCredits = Money.Zero(Currency.Usd);
+        var totalDebits = Money.Zero(journal.BaseCurrency);
+        var totalCredits = Money.Zero(journal.BaseCurrency);
         foreach (var line in journal.PostedEntries.SelectMany(e => e.Lines))
         {
             if (line.Side == Side.Debit)

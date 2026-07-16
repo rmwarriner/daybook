@@ -55,7 +55,7 @@ public sealed class AccountRegister
             .OrderBy(x => x.Entry.EntryDate)
             .ThenBy(x => x.Entry.SequenceNumber);
 
-        var running = Money.Zero(Currency.Usd);
+        var running = Money.Zero(journal.BaseCurrency);
         var lines = new List<RegisterLine>();
         foreach (var (entry, line) in ordered)
         {

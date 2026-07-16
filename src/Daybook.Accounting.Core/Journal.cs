@@ -11,9 +11,11 @@ namespace Daybook.Accounting.Core;
 /// <see cref="Post"/> are caller-supplied rather than read from an ambient
 /// clock or current-user service — the same determinism rule already
 /// applied to every generated id in this layer (no wall-clock, no ambient
-/// state in domain code). The book's base currency is hardcoded to
-/// <see cref="Currency.Usd"/> for now; there is no <c>Book</c> entity yet
-/// to carry it.
+/// state in domain code). <see cref="BaseCurrency"/> is likewise
+/// caller-supplied at construction rather than read from a <c>Book</c> —
+/// a caller constructs a <see cref="Journal"/> with the currency from the
+/// <see cref="Book"/> it belongs to (typically <see cref="Currency.Usd"/>,
+/// the only value <see cref="Book.Create"/> accepts in v1).
 /// </remarks>
 public sealed class Journal
 {
@@ -21,11 +23,20 @@ public sealed class Journal
     private readonly Dictionary<Guid, Guid> _reversalOf = [];
     private int _nextSequenceNumber = 1;
 
-    private Journal()
+    private Journal(Currency baseCurrency)
     {
+        BaseCurrency = baseCurrency;
     }
 
-    public static Journal Empty() => new();
+    /// <summary>The currency every posted line must be denominated in (spec §5 rule 5).</summary>
+    public Currency BaseCurrency { get; }
+
+    /// <exception cref="ArgumentNullException"><paramref name="baseCurrency"/> is null.</exception>
+    public static Journal Empty(Currency baseCurrency)
+    {
+        ArgumentNullException.ThrowIfNull(baseCurrency);
+        return new Journal(baseCurrency);
+    }
 
     public JournalEntry? Find(Guid id) => _byId.GetValueOrDefault(id);
 
@@ -242,14 +253,14 @@ public sealed class Journal
                 return AccountPlaceholder(account);
             }
 
-            if (line.Amount.Currency != Currency.Usd)
+            if (line.Amount.Currency != BaseCurrency)
             {
                 return CurrencyMismatch(line);
             }
         }
 
-        var debitTotal = Money.Zero(Currency.Usd);
-        var creditTotal = Money.Zero(Currency.Usd);
+        var debitTotal = Money.Zero(BaseCurrency);
+        var creditTotal = Money.Zero(BaseCurrency);
         foreach (var line in candidate.Lines)
         {
             if (line.Side == Side.Debit)
@@ -319,10 +330,10 @@ public sealed class Journal
         $"Account '{account.Name}' is a placeholder (roll-up-only) and rejects direct postings.",
         ["Post to one of its leaf sub-accounts instead."]);
 
-    private static Error CurrencyMismatch(JournalLine line) => new(
+    private Error CurrencyMismatch(JournalLine line) => new(
         "entry.line.currency_mismatch",
         ErrorCategory.Validation,
-        $"Line amount is in '{line.Amount.Currency}', but the book's base currency is '{Currency.Usd}'.",
+        $"Line amount is in '{line.Amount.Currency}', but the book's base currency is '{BaseCurrency}'.",
         ["Use an amount in the book's base currency."]);
 
     private static Error Unbalanced(JournalEntry entry, Money debitTotal, Money creditTotal) => new(

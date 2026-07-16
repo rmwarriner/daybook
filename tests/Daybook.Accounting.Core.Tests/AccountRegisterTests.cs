@@ -32,7 +32,7 @@ public class AccountRegisterTests
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
         var rent = chart.AddRoot(Guid.NewGuid(), "Rent", AccountType.Expense).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var paycheck = Post(
             journal, chart, new DateOnly(2026, 7, 1), "Paycheck", ADebit(checking.Id, 1000m), ACredit(salary.Id, 1000m));
         var rentPayment = Post(
@@ -61,7 +61,7 @@ public class AccountRegisterTests
         var chart = ChartOfAccounts.Empty();
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         Post(journal, chart, new DateOnly(2026, 7, 1), "Paycheck", ADebit(checking.Id, 1000m), ACredit(salary.Id, 1000m));
 
         var register = AccountRegister.Compute(salary.Id, chart, journal).Value;
@@ -75,7 +75,7 @@ public class AccountRegisterTests
         var chart = ChartOfAccounts.Empty();
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var later = Post(
             journal, chart, new DateOnly(2026, 7, 20), "Later", ADebit(checking.Id, 20m), ACredit(salary.Id, 20m));
         var earlier = Post(
@@ -93,7 +93,7 @@ public class AccountRegisterTests
         var utilities = chart.AddRoot(Guid.NewGuid(), "Utilities", AccountType.Expense, isPlaceholder: true).Value;
         var electric = chart.AddChild(Guid.NewGuid(), utilities.Id, "Electric", AccountType.Expense).Value;
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         Post(journal, chart, new DateOnly(2026, 7, 1), "Electric bill", ADebit(electric.Id, 50m), ACredit(checking.Id, 50m));
 
         var register = AccountRegister.Compute(utilities.Id, chart, journal).Value;
@@ -109,7 +109,7 @@ public class AccountRegisterTests
         var electric = chart.AddChild(Guid.NewGuid(), utilities.Id, "Electric", AccountType.Expense).Value;
         var gas = chart.AddChild(Guid.NewGuid(), utilities.Id, "Gas", AccountType.Expense).Value;
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         var gasBill = Post(
             journal, chart, new DateOnly(2026, 7, 1), "Gas bill", ADebit(gas.Id, 30m), ACredit(checking.Id, 30m));
         var electricBill = Post(
@@ -127,7 +127,7 @@ public class AccountRegisterTests
         var chart = ChartOfAccounts.Empty();
         var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
         var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
-        var journal = Journal.Empty();
+        var journal = Journal.Empty(Currency.Usd);
         journal.CreateDraft(
             Guid.NewGuid(), new DateOnly(2026, 7, 1), "Unposted", [ADebit(checking.Id, 1000m), ACredit(salary.Id, 1000m)]);
 
@@ -139,9 +139,25 @@ public class AccountRegisterTests
     [Fact]
     public void Rejects_an_unknown_account()
     {
-        var result = AccountRegister.Compute(Guid.NewGuid(), ChartOfAccounts.Empty(), Journal.Empty());
+        var result = AccountRegister.Compute(Guid.NewGuid(), ChartOfAccounts.Empty(), Journal.Empty(Currency.Usd));
 
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("account.not_found");
+    }
+
+    [Fact]
+    public void Running_balance_is_denominated_in_the_journals_own_currency_not_a_hardcoded_one()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var checking = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
+        var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
+        var journal = Journal.Empty(Currency.Of("EUR"));
+        var debit = JournalLine.Create(checking.Id, Side.Debit, Money.Of(500m, Currency.Of("EUR"))).Value;
+        var credit = JournalLine.Create(salary.Id, Side.Credit, Money.Of(500m, Currency.Of("EUR"))).Value;
+        Post(journal, chart, new DateOnly(2026, 7, 1), "Paycheck in EUR", debit, credit);
+
+        var register = AccountRegister.Compute(checking.Id, chart, journal).Value;
+
+        register.Lines.Should().ContainSingle().Which.RunningBalance.Should().Be(Money.Of(500m, Currency.Of("EUR")));
     }
 }
