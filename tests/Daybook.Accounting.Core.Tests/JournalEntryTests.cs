@@ -35,6 +35,7 @@ public class JournalEntryTests
         entry.SequenceNumber.Should().BeNull();
         entry.PostedAtUtc.Should().BeNull();
         entry.PostedByUserId.Should().BeNull();
+        entry.ReversesEntryId.Should().BeNull();
     }
 
     [Fact]

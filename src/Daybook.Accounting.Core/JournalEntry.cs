@@ -34,6 +34,15 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
 
     public Guid? PostedByUserId { get; }
 
+    /// <summary>
+    /// Non-null when this entry is itself a reversal. Set once, at
+    /// creation, like any other field — unlike the reverse direction
+    /// ("what reversed this entry"), which isn't stored here at all; that
+    /// would mean mutating an already-posted entry. <see cref="Journal"/>
+    /// tracks that separately, as a link the original entry never carries.
+    /// </summary>
+    public Guid? ReversesEntryId { get; }
+
     private JournalEntry(
         Guid id,
         DateOnly entryDate,
@@ -42,7 +51,8 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         JournalEntryStatus status,
         int? sequenceNumber,
         DateTimeOffset? postedAtUtc,
-        Guid? postedByUserId)
+        Guid? postedByUserId,
+        Guid? reversesEntryId)
     {
         Id = id;
         EntryDate = entryDate;
@@ -52,6 +62,7 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         SequenceNumber = sequenceNumber;
         PostedAtUtc = postedAtUtc;
         PostedByUserId = postedByUserId;
+        ReversesEntryId = reversesEntryId;
     }
 
     /// <summary>
@@ -89,7 +100,8 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
             JournalEntryStatus.Draft,
             sequenceNumber: null,
             postedAtUtc: null,
-            postedByUserId: null);
+            postedByUserId: null,
+            reversesEntryId: null);
     }
 
     /// <summary>Replaces the date, description, and lines of a draft. Fails once the entry is posted.</summary>
@@ -118,17 +130,23 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
             Status,
             SequenceNumber,
             PostedAtUtc,
-            PostedByUserId);
+            PostedByUserId,
+            ReversesEntryId);
     }
 
     /// <summary>
     /// Raw transition to Posted with no §5 validation. Internal because
     /// that validation needs the chart of accounts and the journal's
     /// sequence counter; only <see cref="Journal"/> may call this, after
-    /// checking those.
+    /// checking those. <paramref name="reversesEntryId"/> is set when this
+    /// transition is posting a reversal, per <see cref="ReversesEntryId"/>.
     /// </summary>
-    internal JournalEntry MarkPosted(int sequenceNumber, DateTimeOffset postedAtUtc, Guid postedByUserId) =>
-        new(Id, EntryDate, Description, Lines, JournalEntryStatus.Posted, sequenceNumber, postedAtUtc, postedByUserId);
+    internal JournalEntry MarkPosted(
+        int sequenceNumber,
+        DateTimeOffset postedAtUtc,
+        Guid postedByUserId,
+        Guid? reversesEntryId = null) =>
+        new(Id, EntryDate, Description, Lines, JournalEntryStatus.Posted, sequenceNumber, postedAtUtc, postedByUserId, reversesEntryId);
 
     internal static Error PostedImmutable() => new(
         "entry.posted.immutable",
