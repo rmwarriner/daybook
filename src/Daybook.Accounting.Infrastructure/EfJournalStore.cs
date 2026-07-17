@@ -19,6 +19,16 @@ public sealed class EfJournalStore(DaybookDbContext context) : IJournalStore
         return JournalMapper.ToDomain(baseCurrency, entries, lines);
     }
 
+    /// <summary>
+    /// Writes every draft and newly-posted entry back to storage. Never
+    /// touches a row that's already <see cref="JournalEntryStatus.Posted"/>
+    /// in the database — no UPDATE, no DELETE, not even a rewrite with
+    /// identical values — regardless of what <paramref name="journal"/>
+    /// claims for that id (spec §7.4's append-only enforcement). Under
+    /// normal usage this can never come up, since Core exposes no way to
+    /// construct a modified <c>Posted</c> entry; the guard exists for the
+    /// bug/rogue-write case that normal usage can't reach.
+    /// </summary>
     public async Task SaveAsync(Guid bookId, Journal journal, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(journal);
@@ -30,12 +40,18 @@ public sealed class EfJournalStore(DaybookDbContext context) : IJournalStore
             .Where(e => e.BookId == bookId)
             .ToDictionaryAsync(e => e.Id, cancellationToken);
 
-        foreach (var stale in existingEntries.Values.Where(e => !currentIds.Contains(e.Id)))
+        var writableIds = updatedEntries
+            .Where(e => !existingEntries.TryGetValue(e.Id, out var existing) || existing.Status != JournalEntryStatus.Posted)
+            .Select(e => e.Id)
+            .ToHashSet();
+
+        foreach (var stale in existingEntries.Values
+            .Where(e => !currentIds.Contains(e.Id) && e.Status != JournalEntryStatus.Posted))
         {
             context.JournalEntries.Remove(stale);
         }
 
-        foreach (var updated in updatedEntries)
+        foreach (var updated in updatedEntries.Where(e => writableIds.Contains(e.Id)))
         {
             if (existingEntries.TryGetValue(updated.Id, out var existing))
             {
@@ -48,10 +64,10 @@ public sealed class EfJournalStore(DaybookDbContext context) : IJournalStore
         }
 
         var existingLines = await context.JournalLines
-            .Where(l => currentIds.Contains(l.EntryId))
+            .Where(l => writableIds.Contains(l.EntryId))
             .ToListAsync(cancellationToken);
         context.JournalLines.RemoveRange(existingLines);
-        context.JournalLines.AddRange(JournalMapper.ToLineEntities(journal));
+        context.JournalLines.AddRange(JournalMapper.ToLineEntities(journal).Where(l => writableIds.Contains(l.EntryId)));
 
         await context.SaveChangesAsync(cancellationToken);
     }
