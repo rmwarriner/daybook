@@ -282,6 +282,120 @@ public sealed class EfJournalStoreTests : IDisposable
         loaded.Find(id).Should().NotBeNull();
     }
 
+    // ---- Reverse ----------------------------------------------------------
+
+    [Fact]
+    public async Task Reversing_a_posted_entry_round_trips_the_reversal()
+    {
+        var (bookId, chart, checking, salary) = await ABookWithAccountsAsync();
+        var journal = Journal.Empty(Currency.Usd);
+        var originalId = Guid.NewGuid();
+        journal.CreateDraft(originalId, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(originalId, chart, PostedAtUtc, PostedByUserId);
+        await _store.SaveAsync(bookId, journal);
+
+        var reversalId = Guid.NewGuid();
+        var reversalDate = new DateOnly(2026, 7, 20);
+        journal.Reverse(originalId, reversalId, chart, reversalDate, "Reversing paycheck", PostedAtUtc, PostedByUserId);
+        await _store.SaveAsync(bookId, journal);
+
+        var loaded = await _store.LoadAsync(bookId, Currency.Usd);
+        var reversal = loaded.Find(reversalId)!;
+        reversal.Status.Should().Be(JournalEntryStatus.Posted);
+        reversal.EntryDate.Should().Be(reversalDate);
+        reversal.Description.Should().Be("Reversing paycheck");
+        reversal.SequenceNumber.Should().Be(2);
+        reversal.ReversesEntryId.Should().Be(originalId);
+        reversal.Lines.Should().Contain(l =>
+            l.AccountId == checking.Id && l.Side == Side.Credit && l.Amount == Money.Of(100m, Currency.Usd));
+        reversal.Lines.Should().Contain(l =>
+            l.AccountId == salary.Id && l.Side == Side.Debit && l.Amount == Money.Of(100m, Currency.Usd));
+    }
+
+    [Fact]
+    public async Task Reload_restores_the_reversal_link_both_directions()
+    {
+        var (bookId, chart, checking, salary) = await ABookWithAccountsAsync();
+        var journal = Journal.Empty(Currency.Usd);
+        var originalId = Guid.NewGuid();
+        journal.CreateDraft(originalId, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(originalId, chart, PostedAtUtc, PostedByUserId);
+        await _store.SaveAsync(bookId, journal);
+        var reversalId = Guid.NewGuid();
+        journal.Reverse(originalId, reversalId, chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
+        await _store.SaveAsync(bookId, journal);
+
+        var loaded = await _store.LoadAsync(bookId, Currency.Usd);
+
+        loaded.ReversalOf(originalId).Should().Be(reversalId);
+        loaded.IsReversed(originalId).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Saving_a_reversal_never_touches_the_original_entrys_row()
+    {
+        var (bookId, chart, checking, salary) = await ABookWithAccountsAsync();
+        var journal = Journal.Empty(Currency.Usd);
+        var originalId = Guid.NewGuid();
+        journal.CreateDraft(originalId, EntryDate, "Original paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(originalId, chart, PostedAtUtc, PostedByUserId);
+        await _store.SaveAsync(bookId, journal);
+
+        journal.Reverse(originalId, Guid.NewGuid(), chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
+        await _store.SaveAsync(bookId, journal);
+
+        var loaded = await _store.LoadAsync(bookId, Currency.Usd);
+        var original = loaded.Find(originalId)!;
+        original.Description.Should().Be("Original paycheck");
+        original.SequenceNumber.Should().Be(1);
+        original.Lines.Should().Contain(l => l.Side == Side.Debit && l.Amount == Money.Of(100m, Currency.Usd));
+    }
+
+    [Fact]
+    public async Task Posting_and_reversing_before_the_first_save_round_trips_both_rows()
+    {
+        var (bookId, chart, checking, salary) = await ABookWithAccountsAsync();
+        var journal = Journal.Empty(Currency.Usd);
+        var originalId = Guid.NewGuid();
+        journal.CreateDraft(originalId, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(originalId, chart, PostedAtUtc, PostedByUserId);
+        var reversalId = Guid.NewGuid();
+        journal.Reverse(originalId, reversalId, chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
+
+        await _store.SaveAsync(bookId, journal);
+
+        var loaded = await _store.LoadAsync(bookId, Currency.Usd);
+        loaded.PostedEntries.Select(e => e.SequenceNumber).Should().Equal(1, 2);
+        loaded.ReversalOf(originalId).Should().Be(reversalId);
+    }
+
+    [Fact]
+    public async Task A_reversal_is_itself_reversible_across_reloads()
+    {
+        var (bookId, chart, checking, salary) = await ABookWithAccountsAsync();
+        var journal = Journal.Empty(Currency.Usd);
+        var originalId = Guid.NewGuid();
+        journal.CreateDraft(originalId, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(originalId, chart, PostedAtUtc, PostedByUserId);
+        await _store.SaveAsync(bookId, journal);
+
+        var reloaded1 = await _store.LoadAsync(bookId, Currency.Usd);
+        var reversalId = Guid.NewGuid();
+        reloaded1.Reverse(originalId, reversalId, chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId);
+        await _store.SaveAsync(bookId, reloaded1);
+
+        var reloaded2 = await _store.LoadAsync(bookId, Currency.Usd);
+        var reversalOfReversalId = Guid.NewGuid();
+        var result = reloaded2.Reverse(
+            reversalId, reversalOfReversalId, chart, EntryDate, "Reversal of reversal", PostedAtUtc, PostedByUserId);
+        await _store.SaveAsync(bookId, reloaded2);
+
+        result.IsSuccess.Should().BeTrue();
+        var final = await _store.LoadAsync(bookId, Currency.Usd);
+        final.PostedEntries.Select(e => e.SequenceNumber).Should().Equal(1, 2, 3);
+        final.ReversalOf(reversalId).Should().Be(reversalOfReversalId);
+    }
+
     [Fact]
     public async Task Journals_for_different_books_are_isolated()
     {
