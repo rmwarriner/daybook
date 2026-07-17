@@ -106,6 +106,21 @@ public class BalanceSheetMarkdownPresenterTests
     }
 
     [Fact]
+    public void Escapes_pipe_characters_in_account_names_so_the_table_stays_valid()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var checking = chart.AddRoot(Guid.NewGuid(), "Checking | Savings", AccountType.Asset).Value;
+        var equity = chart.AddRoot(Guid.NewGuid(), "Owner's Equity", AccountType.Equity).Value;
+        var journal = Journal.Empty(Currency.Usd);
+        Post(journal, chart, ADebit(checking.Id, 100m), ACredit(equity.Id, 100m));
+        var balanceSheet = BalanceSheet.Compute(chart, journal);
+
+        var markdown = BalanceSheetMarkdownPresenter.Render(balanceSheet, chart);
+
+        markdown.Should().Contain("| Checking \\| Savings | 100.00 |");
+    }
+
+    [Fact]
     public void Renders_an_empty_section_with_a_zero_subtotal()
     {
         var chart = ChartOfAccounts.Empty();

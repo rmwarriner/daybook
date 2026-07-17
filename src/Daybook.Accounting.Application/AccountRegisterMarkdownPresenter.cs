@@ -33,9 +33,10 @@ public static class AccountRegisterMarkdownPresenter
         {
             var debit = line.Side == Side.Debit ? FormatAmount(line.Amount) : string.Empty;
             var credit = line.Side == Side.Credit ? FormatAmount(line.Amount) : string.Empty;
-            var accountPath = chart.DisplayPathOf(line.AccountId).Value;
+            var accountPath = MarkdownText.EscapeTableCell(chart.DisplayPathOf(line.AccountId).Value);
+            var description = MarkdownText.EscapeTableCell(line.Description);
             var date = line.EntryDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            lines.Add($"| {date} | {accountPath} | {line.Description} | {debit} | {credit} | {FormatAmount(line.RunningBalance)} |");
+            lines.Add($"| {date} | {accountPath} | {description} | {debit} | {credit} | {FormatAmount(line.RunningBalance)} |");
         }
 
         return string.Join('\n', lines);

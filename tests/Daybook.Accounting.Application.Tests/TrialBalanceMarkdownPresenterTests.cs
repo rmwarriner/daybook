@@ -145,6 +145,38 @@ public class TrialBalanceMarkdownPresenterTests
     }
 
     [Fact]
+    public void Escapes_pipe_characters_in_account_names_so_the_table_stays_valid()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var checking = chart.AddRoot(Guid.NewGuid(), "Rent | Utilities", AccountType.Asset).Value;
+        var equity = chart.AddRoot(Guid.NewGuid(), "Owner's Equity", AccountType.Equity).Value;
+        var journal = Journal.Empty(Currency.Usd);
+        Post(journal, chart, ADebit(checking.Id, 100m), ACredit(equity.Id, 100m));
+        var trialBalance = TrialBalance.Compute(chart, journal);
+
+        var markdown = TrialBalanceMarkdownPresenter.Render(trialBalance, chart);
+
+        markdown.Should().Contain("| Rent \\| Utilities | 100.00 |  |");
+        markdown.Split('\n').Count(l => l.StartsWith('|')).Should().Be(5); // header, alignment, 2 account rows, total row
+    }
+
+    [Fact]
+    public void Escapes_newlines_in_account_names_so_the_table_stays_valid()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var checking = chart.AddRoot(Guid.NewGuid(), "Rent\nUtilities", AccountType.Asset).Value;
+        var equity = chart.AddRoot(Guid.NewGuid(), "Owner's Equity", AccountType.Equity).Value;
+        var journal = Journal.Empty(Currency.Usd);
+        Post(journal, chart, ADebit(checking.Id, 100m), ACredit(equity.Id, 100m));
+        var trialBalance = TrialBalance.Compute(chart, journal);
+
+        var markdown = TrialBalanceMarkdownPresenter.Render(trialBalance, chart);
+
+        markdown.Should().Contain("| Rent Utilities | 100.00 |  |");
+        markdown.Split('\n').Count(l => l.StartsWith('|')).Should().Be(5);
+    }
+
+    [Fact]
     public void Rejects_a_null_trial_balance()
     {
         var act = () => TrialBalanceMarkdownPresenter.Render(null!, ChartOfAccounts.Empty());

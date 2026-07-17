@@ -54,7 +54,7 @@ public static class BalanceSheetMarkdownPresenter
 
         foreach (var (path, balance) in rows)
         {
-            lines.Add($"| {path} | {FormatAmount(balance)} |");
+            lines.Add($"| {MarkdownText.EscapeTableCell(path)} | {FormatAmount(balance)} |");
         }
 
         return lines;

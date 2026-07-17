@@ -105,6 +105,25 @@ public class AccountRegisterMarkdownPresenterTests
     }
 
     [Fact]
+    public void Escapes_pipe_characters_and_newlines_in_the_description_and_account_name()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var checking = chart.AddRoot(Guid.NewGuid(), "Checking | Savings", AccountType.Asset).Value;
+        var salary = chart.AddRoot(Guid.NewGuid(), "Salary", AccountType.Income).Value;
+        var journal = Journal.Empty(Currency.Usd);
+        Post(
+            journal, chart, new DateOnly(2026, 7, 1), "Paycheck | bonus\nincluded",
+            ADebit(checking.Id, 1000m), ACredit(salary.Id, 1000m));
+        var register = AccountRegister.Compute(checking.Id, chart, journal).Value;
+
+        var markdown = AccountRegisterMarkdownPresenter.Render(register, chart);
+
+        markdown.Should().Contain(
+            "| 2026-07-01 | Checking \\| Savings | Paycheck \\| bonus included | 1,000.00 |  | 1,000.00 |");
+        markdown.Split('\n').Count(l => l.StartsWith('|')).Should().Be(3); // header, alignment, 1 line row
+    }
+
+    [Fact]
     public void Renders_just_the_header_when_there_are_no_lines()
     {
         var chart = ChartOfAccounts.Empty();

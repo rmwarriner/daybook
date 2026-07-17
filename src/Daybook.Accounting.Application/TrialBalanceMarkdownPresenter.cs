@@ -34,7 +34,7 @@ public static class TrialBalanceMarkdownPresenter
         {
             var debit = line.NormalBalance == Side.Debit ? FormatAmount(line.RolledUpBalance) : string.Empty;
             var credit = line.NormalBalance == Side.Credit ? FormatAmount(line.RolledUpBalance) : string.Empty;
-            lines.Add($"| {path} | {debit} | {credit} |");
+            lines.Add($"| {MarkdownText.EscapeTableCell(path)} | {debit} | {credit} |");
         }
 
         lines.Add($"| **Total** | **{FormatAmount(trialBalance.TotalDebits)}** | **{FormatAmount(trialBalance.TotalCredits)}** |");
