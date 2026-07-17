@@ -61,6 +61,8 @@ public class BalanceSheetTests
             .Which.RolledUpBalance.Should().Be(Money.Of(1000m, Currency.Usd));
         balanceSheet.NetIncome.Should().Be(Money.Of(100m, Currency.Usd));
         balanceSheet.TotalAssets.Should().Be(Money.Of(1600m, Currency.Usd));
+        balanceSheet.TotalLiabilities.Should().Be(Money.Of(500m, Currency.Usd));
+        balanceSheet.TotalEquity.Should().Be(Money.Of(1100m, Currency.Usd));
         balanceSheet.TotalLiabilitiesAndEquity.Should().Be(Money.Of(1600m, Currency.Usd));
     }
 
@@ -117,6 +119,8 @@ public class BalanceSheetTests
         balanceSheet.Equity.Should().BeEmpty();
         balanceSheet.NetIncome.Should().Be(Money.Zero(Currency.Usd));
         balanceSheet.TotalAssets.Should().Be(Money.Zero(Currency.Usd));
+        balanceSheet.TotalLiabilities.Should().Be(Money.Zero(Currency.Usd));
+        balanceSheet.TotalEquity.Should().Be(Money.Zero(Currency.Usd));
         balanceSheet.TotalLiabilitiesAndEquity.Should().Be(Money.Zero(Currency.Usd));
     }
 

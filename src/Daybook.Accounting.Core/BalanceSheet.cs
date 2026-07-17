@@ -28,6 +28,12 @@ public sealed class BalanceSheet
 
     public Money TotalAssets { get; }
 
+    /// <summary>The sum of <see cref="Liabilities"/>' rolled-up balances.</summary>
+    public Money TotalLiabilities { get; }
+
+    /// <summary>The sum of <see cref="Equity"/>'s rolled-up balances, plus <see cref="NetIncome"/>.</summary>
+    public Money TotalEquity { get; }
+
     public Money TotalLiabilitiesAndEquity { get; }
 
     private BalanceSheet(
@@ -36,6 +42,8 @@ public sealed class BalanceSheet
         IReadOnlyList<AccountBalance> equity,
         Money netIncome,
         Money totalAssets,
+        Money totalLiabilities,
+        Money totalEquity,
         Money totalLiabilitiesAndEquity)
     {
         Assets = assets;
@@ -43,6 +51,8 @@ public sealed class BalanceSheet
         Equity = equity;
         NetIncome = netIncome;
         TotalAssets = totalAssets;
+        TotalLiabilities = totalLiabilities;
+        TotalEquity = totalEquity;
         TotalLiabilitiesAndEquity = totalLiabilitiesAndEquity;
     }
 
@@ -71,7 +81,9 @@ public sealed class BalanceSheet
 
         var netIncome = Total(income) - Total(expense);
         var totalAssets = Total(assets);
-        var totalLiabilitiesAndEquity = Total(liabilities) + Total(equity) + netIncome;
+        var totalLiabilities = Total(liabilities);
+        var totalEquity = Total(equity) + netIncome;
+        var totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
 
         if (totalAssets != totalLiabilitiesAndEquity)
         {
@@ -82,6 +94,7 @@ public sealed class BalanceSheet
                 totalLiabilitiesAndEquity);
         }
 
-        return new BalanceSheet(assets, liabilities, equity, netIncome, totalAssets, totalLiabilitiesAndEquity);
+        return new BalanceSheet(
+            assets, liabilities, equity, netIncome, totalAssets, totalLiabilities, totalEquity, totalLiabilitiesAndEquity);
     }
 }
