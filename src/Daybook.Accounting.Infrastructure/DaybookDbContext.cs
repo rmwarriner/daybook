@@ -14,6 +14,10 @@ public sealed class DaybookDbContext(DbContextOptions<DaybookDbContext> options)
 
     internal DbSet<AccountEntity> Accounts => Set<AccountEntity>();
 
+    internal DbSet<JournalEntryEntity> JournalEntries => Set<JournalEntryEntity>();
+
+    internal DbSet<JournalLineEntity> JournalLines => Set<JournalLineEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<BookEntity>(book =>
@@ -35,6 +39,27 @@ public sealed class DaybookDbContext(DbContextOptions<DaybookDbContext> options)
             account.HasIndex(x => new { x.BookId, x.Code }).IsUnique();
             account.HasOne<BookEntity>().WithMany().HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
             account.HasOne<AccountEntity>().WithMany().HasForeignKey(x => x.ParentAccountId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<JournalEntryEntity>(entry =>
+        {
+            entry.ToTable("JournalEntries");
+            entry.HasKey(x => x.Id);
+            entry.Property(x => x.Description).IsRequired();
+            entry.Property(x => x.Status).HasConversion<string>().IsRequired();
+            entry.HasIndex(x => new { x.BookId, x.SequenceNumber }).IsUnique();
+            entry.HasOne<BookEntity>().WithMany().HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
+            entry.HasOne<JournalEntryEntity>().WithMany().HasForeignKey(x => x.ReversesEntryId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<JournalLineEntity>(line =>
+        {
+            line.ToTable("JournalLines");
+            line.HasKey(x => x.Id);
+            line.Property(x => x.Side).HasConversion<string>().IsRequired();
+            line.Property(x => x.Currency).IsRequired().HasMaxLength(3);
+            line.HasOne<JournalEntryEntity>().WithMany().HasForeignKey(x => x.EntryId).OnDelete(DeleteBehavior.Cascade);
+            line.HasOne<AccountEntity>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

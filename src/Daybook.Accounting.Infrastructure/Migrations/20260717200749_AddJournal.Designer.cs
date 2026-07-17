@@ -3,6 +3,7 @@ using System;
 using Daybook.Accounting.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Daybook.Accounting.Infrastructure.Migrations
 {
     [DbContext(typeof(DaybookDbContext))]
-    partial class DaybookDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260717200749_AddJournal")]
+    partial class AddJournal
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
