@@ -1,5 +1,4 @@
 <Project>
-
   <!--
     Central Package Management: every NuGet version is pinned here, once.
     Individual projects reference packages by name only (no Version attribute).
@@ -8,20 +7,28 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
-
   <ItemGroup>
     <!-- Test harness -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageVersion>
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
+    <!-- Overrides the vulnerable transitive SQLitePCLRaw.lib.e_sqlite3 2.1.11 that
+         Microsoft.EntityFrameworkCore.Sqlite 10.0.10 pulls in (NU1903, GHSA-2m69-gcr7-jv3q /
+         CVE-2025-6965, CVE-2025-70873 — a bundled-native-SQLite vulnerability). 2.1.12 is the
+         package maintainer's minimal-risk maintenance release: same 2.1.x API surface as
+         everything else in this graph, just the native SQLite build bumped to the patched
+         3.53.3. Remove once EF Core itself picks up a fixed SQLitePCLRaw dependency. -->
+    <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
-
     <!-- Assertions: AwesomeAssertions is the free Apache-licensed FluentAssertions
          fork. Do NOT use FluentAssertions >= 8 (commercially licensed). -->
     <PackageVersion Include="AwesomeAssertions" Version="9.4.0" />
-
     <!-- Property-based testing (pure C#, no FSharp.Core dependency) -->
     <PackageVersion Include="CsCheck" Version="4.7.0" />
   </ItemGroup>
-
 </Project>
