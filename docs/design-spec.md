@@ -61,7 +61,7 @@ Because Core and Application carry the rules, you can later run the same engine 
 
 ### Suggested solution layout
 ```
-Daybook.sln
+Daybook.slnx
 ├─ src/
 │  ├─ Daybook.Accounting.Core/
 │  ├─ Daybook.Accounting.Application/
@@ -390,7 +390,7 @@ Because errors are part of the API contract, each rule ships with a test asserti
 
 Testing is treated as HIGH importance and written test-first.
 
-- **Framework:** xUnit + FluentAssertions. Property-based tests via **FsCheck** for invariants.
+- **Framework:** xUnit + **AwesomeAssertions** (the free, Apache-licensed FluentAssertions fork — FluentAssertions itself is commercially licensed from v8 on, so it's deliberately not used). Property-based tests via **CsCheck** for invariants (pure C#, no FSharp.Core transitive dependency, unlike FsCheck).
 - **Test-first flow:** red → green → refactor. Domain rules (§5) get their failing test before their implementation.
 - **Determinism:** inject `IClock` and `ICurrentUser` so time and identity are controllable in tests — no wall-clock or ambient state.
 - **Test pyramid:**

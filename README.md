@@ -13,9 +13,13 @@ construction.
 The primary user is a single household, but the core stays flexible for larger books.
 It is open source (AGPL-3.0), self-hosted, and container-friendly.
 
-> **Status: early development.** The solution skeleton and the `Money` value object are
-> in place and fully tested. The domain model, posting pipeline, derivation engine,
-> persistence, API, and CLI are being built in small, test-first vertical slices. See the
+> **Status: core engine and persistence complete; no API or CLI yet.** The domain model
+> (books, chart of accounts, the immutable journal with draft → post → reverse and
+> gapless per-book sequencing), the derivation engine (trial balance, account register,
+> balance sheet) with HTML + Markdown reports, and EF Core/SQLite persistence for all of
+> the above — including append-only enforcement of posted entries — are built and fully
+> tested (300+ tests, 0 warnings). The HTTP API, CLI, authentication, encryption-at-rest,
+> and audit logging are not yet started. See the
 > [milestones](https://github.com/rmwarriner/daybook/milestones) and
 > [issues](https://github.com/rmwarriner/daybook/issues) for what's next.
 
