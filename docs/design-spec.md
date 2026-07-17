@@ -285,13 +285,13 @@ Tags (§4.8) give reports a **second axis** orthogonal to accounts. The engine f
 EF Core over **SQLite**. Single-file DB fits a self-hosted household well and is trivially backed up. The repository interfaces live in Application; the EF implementation lives in Infrastructure, so Postgres (for "larger books") is later a new adapter, not a rewrite.
 
 ### 7.2 Schema sketch
-`Books`, `Accounts`, `JournalEntries`, `JournalLines`, plus `SequenceCounters` (per-book) and an append-only `AuditLog`. Foreign keys enforced; `JournalLines` cascade with their entry only while the entry is `Draft`.
+`Books`, `Accounts`, `JournalEntries`, `JournalLines`, and (not yet built) an append-only `AuditLog`. Foreign keys enforced. `JournalLines` cascade-deletes with their entry at the DB level, but the delete path itself is only ever reachable for a still-`Draft` entry — `EfJournalStore` never issues a delete against an entry the database has recorded as `Posted`, so the practical effect matches "cascade only while `Draft`" even though SQLite has no way to express that condition declaratively on the FK itself.
 
 ### 7.3 Gapless per-book sequence
-Assigned inside the same transaction as the post, via a `SequenceCounters` row locked/updated per book. SQLite's single-writer model makes this safe; the counter guarantees no gaps and a strict order for the register and audit trail.
+No separate `SequenceCounters` table, as first sketched above — built and confirmed with the user during M10 scoping. `Journal` is loaded and saved as a whole per book (mirroring `Book`/`ChartOfAccounts`, spec §7.1), so on load `Journal.Rehydrate` derives the next sequence number from `MAX(SequenceNumber)` across the entries just read, and `Post`/`Reverse` assign it in memory before a single `SaveAsync` writes the result back. SQLite's single-writer model plus whole-journal load/save serializes this safely without a dedicated counter row. A `SequenceCounters`-style row becomes worth reintroducing only if persistence ever moves away from whole-journal loading — e.g. for the larger-book/Postgres adapter on the roadmap (§17) — since that's when scanning all entries to find the max stops being cheap.
 
 ### 7.4 Append-only enforcement (defense-in-depth)
-Domain forbids mutating posted entries; additionally, Infrastructure blocks UPDATE/DELETE on posted rows (repository guards, and optionally SQLite triggers) so even a bug or a rogue query can't quietly alter history.
+Domain forbids mutating posted entries. Infrastructure's guard is structural, not a status check that could be skipped: `EfJournalStore.SaveAsync` computes which entry ids are safe to write (new, or still `Draft` in the database) and every write path — entry upsert, entry delete, line rewrite — is restricted to that set, so no code path can issue UPDATE or DELETE against a row the database already has as `Posted`. SQLite triggers remain optional/deferred, as originally noted.
 
 ### 7.5 Concurrency & migrations
 Optimistic concurrency tokens on mutable rows (drafts, accounts). EF Core migrations checked into source control; every schema change ships with a migration and a test that applies it to a fresh DB.
