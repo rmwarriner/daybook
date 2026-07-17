@@ -529,6 +529,262 @@ public class JournalTests
         result.IsSuccess.Should().BeTrue();
     }
 
+    // ---- Rehydrate --------------------------------------------------------
+
+    private static JournalEntrySnapshot ADraftSnapshot(Guid id, IReadOnlyList<JournalLine> lines) =>
+        new(id, EntryDate, "A draft", lines, JournalEntryStatus.Draft, null, null, null, null);
+
+    private static JournalEntrySnapshot APostedSnapshot(
+        Guid id, int sequenceNumber, IReadOnlyList<JournalLine> lines, Guid? reversesEntryId = null) =>
+        new(id, EntryDate, "A posted entry", lines, JournalEntryStatus.Posted,
+            sequenceNumber, PostedAtUtc, PostedByUserId, reversesEntryId);
+
+    [Fact]
+    public void Rehydrate_of_no_entries_yields_an_empty_journal()
+    {
+        var journal = Journal.Rehydrate(Currency.Usd, []);
+
+        journal.Drafts.Should().BeEmpty();
+        journal.PostedEntries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Rehydrate_restores_a_draft_entry()
+    {
+        var (_, checking, salary) = AChart();
+        var id = Guid.NewGuid();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+
+        var journal = Journal.Rehydrate(Currency.Usd, [ADraftSnapshot(id, lines)]);
+
+        var entry = journal.Find(id);
+        entry.Should().NotBeNull();
+        entry!.Status.Should().Be(JournalEntryStatus.Draft);
+        entry.Description.Should().Be("A draft");
+        entry.Lines.Should().BeEquivalentTo(lines);
+        journal.Drafts.Should().ContainSingle().Which.Id.Should().Be(id);
+    }
+
+    [Fact]
+    public void Rehydrate_restores_posted_entries_with_their_original_sequence_numbers()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+
+        var journal = Journal.Rehydrate(
+            Currency.Usd, [APostedSnapshot(firstId, 1, lines), APostedSnapshot(secondId, 2, lines)]);
+
+        journal.PostedEntries.Select(e => e.Id).Should().Equal(firstId, secondId);
+        var first = journal.Find(firstId)!;
+        first.Status.Should().Be(JournalEntryStatus.Posted);
+        first.SequenceNumber.Should().Be(1);
+        first.PostedAtUtc.Should().Be(PostedAtUtc);
+        first.PostedByUserId.Should().Be(PostedByUserId);
+    }
+
+    [Fact]
+    public void Rehydrate_seeds_the_next_sequence_number_past_loaded_history()
+    {
+        var (chart, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var journal = Journal.Rehydrate(Currency.Usd, [APostedSnapshot(Guid.NewGuid(), 1, lines), APostedSnapshot(Guid.NewGuid(), 2, lines)]);
+        var newId = Guid.NewGuid();
+        journal.CreateDraft(newId, EntryDate, "A new entry", lines);
+
+        var result = journal.Post(newId, chart, PostedAtUtc, PostedByUserId);
+
+        result.Value.SequenceNumber.Should().Be(3);
+    }
+
+    [Fact]
+    public void Rehydrate_restores_reversal_links_both_directions()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var originalId = Guid.NewGuid();
+        var reversalId = Guid.NewGuid();
+
+        var journal = Journal.Rehydrate(
+            Currency.Usd,
+            [
+                APostedSnapshot(originalId, 1, lines),
+                APostedSnapshot(reversalId, 2, lines, reversesEntryId: originalId),
+            ]);
+
+        journal.ReversalOf(originalId).Should().Be(reversalId);
+        journal.IsReversed(originalId).Should().BeTrue();
+        journal.Find(reversalId)!.ReversesEntryId.Should().Be(originalId);
+    }
+
+    [Fact]
+    public void Rehydrate_restores_a_mixed_set_of_drafts_and_posted_entries()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var draftId = Guid.NewGuid();
+        var postedId = Guid.NewGuid();
+
+        var journal = Journal.Rehydrate(
+            Currency.Usd, [ADraftSnapshot(draftId, lines), APostedSnapshot(postedId, 1, lines)]);
+
+        journal.Drafts.Should().ContainSingle().Which.Id.Should().Be(draftId);
+        journal.PostedEntries.Should().ContainSingle().Which.Id.Should().Be(postedId);
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_a_null_currency()
+    {
+        var act = () => Journal.Rehydrate(null!, []);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_a_null_entries_sequence()
+    {
+        var act = () => Journal.Rehydrate(Currency.Usd, null!);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_a_duplicate_id()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var id = Guid.NewGuid();
+
+        var act = () => Journal.Rehydrate(Currency.Usd, [ADraftSnapshot(id, lines), ADraftSnapshot(id, lines)]);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_a_draft_carrying_a_sequence_number()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var corrupt = new JournalEntrySnapshot(
+            Guid.NewGuid(), EntryDate, "Corrupt", lines, JournalEntryStatus.Draft,
+            SequenceNumber: 1, PostedAtUtc: null, PostedByUserId: null, ReversesEntryId: null);
+
+        var act = () => Journal.Rehydrate(Currency.Usd, [corrupt]);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_a_draft_carrying_a_reverses_entry_id()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var corrupt = new JournalEntrySnapshot(
+            Guid.NewGuid(), EntryDate, "Corrupt", lines, JournalEntryStatus.Draft,
+            SequenceNumber: null, PostedAtUtc: null, PostedByUserId: null, ReversesEntryId: Guid.NewGuid());
+
+        var act = () => Journal.Rehydrate(Currency.Usd, [corrupt]);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_a_posted_entry_missing_its_sequence_number()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var corrupt = new JournalEntrySnapshot(
+            Guid.NewGuid(), EntryDate, "Corrupt", lines, JournalEntryStatus.Posted,
+            SequenceNumber: null, PostedAtUtc: PostedAtUtc, PostedByUserId: PostedByUserId, ReversesEntryId: null);
+
+        var act = () => Journal.Rehydrate(Currency.Usd, [corrupt]);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_a_posted_entry_missing_its_posted_stamps()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var corrupt = new JournalEntrySnapshot(
+            Guid.NewGuid(), EntryDate, "Corrupt", lines, JournalEntryStatus.Posted,
+            SequenceNumber: 1, PostedAtUtc: null, PostedByUserId: null, ReversesEntryId: null);
+
+        var act = () => Journal.Rehydrate(Currency.Usd, [corrupt]);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_a_gap_in_the_sequence_numbers()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+
+        var act = () => Journal.Rehydrate(
+            Currency.Usd, [APostedSnapshot(Guid.NewGuid(), 1, lines), APostedSnapshot(Guid.NewGuid(), 3, lines)]);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_duplicate_sequence_numbers()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+
+        var act = () => Journal.Rehydrate(
+            Currency.Usd, [APostedSnapshot(Guid.NewGuid(), 1, lines), APostedSnapshot(Guid.NewGuid(), 1, lines)]);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_a_reversal_that_points_outside_the_set()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+
+        var act = () => Journal.Rehydrate(
+            Currency.Usd, [APostedSnapshot(Guid.NewGuid(), 1, lines, reversesEntryId: Guid.NewGuid())]);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_a_reversal_that_points_to_a_draft()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var draftId = Guid.NewGuid();
+
+        var act = () => Journal.Rehydrate(
+            Currency.Usd,
+            [ADraftSnapshot(draftId, lines), APostedSnapshot(Guid.NewGuid(), 1, lines, reversesEntryId: draftId)]);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_rejects_two_entries_claiming_to_reverse_the_same_original()
+    {
+        var (_, checking, salary) = AChart();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var originalId = Guid.NewGuid();
+
+        var act = () => Journal.Rehydrate(
+            Currency.Usd,
+            [
+                APostedSnapshot(originalId, 1, lines),
+                APostedSnapshot(Guid.NewGuid(), 2, lines, reversesEntryId: originalId),
+                APostedSnapshot(Guid.NewGuid(), 3, lines, reversesEntryId: originalId),
+            ]);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
     // ---- Property-based: the central accounting invariant -------------
 
     [Fact]

@@ -38,6 +38,117 @@ public sealed class Journal
         return new Journal(baseCurrency);
     }
 
+    /// <summary>
+    /// Reconstructs a <see cref="Journal"/> from previously-recorded state —
+    /// e.g. rows loaded back from storage. Unlike <see cref="Post"/> and
+    /// <see cref="Reverse"/>, this does not re-run the §5 posting checklist
+    /// against a chart of accounts: a historical entry is already known-
+    /// valid, and re-validating it against today's chart could fail on an
+    /// account deactivated since (see spec §7's persistence notes). It also
+    /// does not reassign sequence numbers — <paramref name="entries"/>
+    /// already carries them — but does seed the next one to one past the
+    /// highest loaded, and rebuilds the reversal links <see cref="ReversalOf"/>
+    /// relies on.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="baseCurrency"/> or <paramref name="entries"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="entries"/> is internally inconsistent — a duplicate id,
+    /// a draft carrying posted-only fields, a posted entry missing a posting
+    /// stamp, a non-gapless sequence, or a dangling/duplicate reversal link.
+    /// A healthy journal can never reach this shape through normal posting,
+    /// so this indicates corrupted or tampered data.
+    /// </exception>
+    public static Journal Rehydrate(Currency baseCurrency, IEnumerable<JournalEntrySnapshot> entries)
+    {
+        ArgumentNullException.ThrowIfNull(baseCurrency);
+        ArgumentNullException.ThrowIfNull(entries);
+
+        var snapshots = entries.ToList();
+
+        var duplicateId = snapshots.GroupBy(s => s.Id).FirstOrDefault(g => g.Count() > 1);
+        if (duplicateId is not null)
+        {
+            throw new InvalidOperationException(
+                $"Corrupted journal data: entry id '{duplicateId.Key}' appears more than once.");
+        }
+
+        foreach (var snapshot in snapshots)
+        {
+            if (snapshot.Status == JournalEntryStatus.Draft)
+            {
+                if (snapshot.SequenceNumber is not null || snapshot.PostedAtUtc is not null ||
+                    snapshot.PostedByUserId is not null || snapshot.ReversesEntryId is not null)
+                {
+                    throw new InvalidOperationException(
+                        $"Corrupted journal data: draft entry '{snapshot.Id}' carries posted-only fields.");
+                }
+            }
+            else if (snapshot.SequenceNumber is null || snapshot.PostedAtUtc is null || snapshot.PostedByUserId is null)
+            {
+                throw new InvalidOperationException(
+                    $"Corrupted journal data: posted entry '{snapshot.Id}' is missing a posting stamp.");
+            }
+        }
+
+        var postedSequenceNumbers = snapshots
+            .Where(s => s.Status == JournalEntryStatus.Posted)
+            .Select(s => s.SequenceNumber!.Value)
+            .OrderBy(n => n)
+            .ToList();
+        if (!postedSequenceNumbers.SequenceEqual(Enumerable.Range(1, postedSequenceNumbers.Count)))
+        {
+            throw new InvalidOperationException(
+                "Corrupted journal data: posted sequence numbers are not gapless starting at 1.");
+        }
+
+        var byId = snapshots.ToDictionary(s => s.Id);
+        var reversalOf = new Dictionary<Guid, Guid>();
+        foreach (var snapshot in snapshots.Where(s => s.ReversesEntryId is not null))
+        {
+            var originalId = snapshot.ReversesEntryId!.Value;
+            if (!byId.TryGetValue(originalId, out var original) || original.Status != JournalEntryStatus.Posted)
+            {
+                throw new InvalidOperationException(
+                    $"Corrupted journal data: entry '{snapshot.Id}' reverses '{originalId}', " +
+                    "which is not a posted entry in this journal.");
+            }
+
+            if (!reversalOf.TryAdd(originalId, snapshot.Id))
+            {
+                throw new InvalidOperationException(
+                    $"Corrupted journal data: entry '{originalId}' is reversed by more than one entry.");
+            }
+        }
+
+        var journal = new Journal(baseCurrency)
+        {
+            _nextSequenceNumber = postedSequenceNumbers.Count == 0 ? 1 : postedSequenceNumbers[^1] + 1,
+        };
+
+        foreach (var snapshot in snapshots)
+        {
+            var draft = JournalEntry.CreateDraft(snapshot.Id, snapshot.EntryDate, snapshot.Description, snapshot.Lines);
+            if (draft.IsFailure)
+            {
+                throw new InvalidOperationException(
+                    $"Corrupted journal data: entry '{snapshot.Id}' failed reconstruction: {draft.Error.Message}");
+            }
+
+            journal._byId[snapshot.Id] = snapshot.Status == JournalEntryStatus.Draft
+                ? draft.Value
+                : draft.Value.MarkPosted(
+                    snapshot.SequenceNumber!.Value, snapshot.PostedAtUtc!.Value, snapshot.PostedByUserId!.Value,
+                    snapshot.ReversesEntryId);
+        }
+
+        foreach (var (originalId, reversalId) in reversalOf)
+        {
+            journal._reversalOf[originalId] = reversalId;
+        }
+
+        return journal;
+    }
+
     public JournalEntry? Find(Guid id) => _byId.GetValueOrDefault(id);
 
     public IReadOnlyCollection<JournalEntry> Drafts =>
