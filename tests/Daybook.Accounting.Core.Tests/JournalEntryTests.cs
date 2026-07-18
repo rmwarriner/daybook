@@ -45,6 +45,14 @@ public class JournalEntryTests
     }
 
     [Fact]
+    public void CreateDraft_stamps_the_current_schema_version()
+    {
+        var entry = JournalEntry.CreateDraft(Id, EntryDate, "Groceries", []).Value;
+
+        entry.SchemaVersion.Should().Be(JournalEntry.CurrentSchemaVersion);
+    }
+
+    [Fact]
     public void CreateDraft_trims_description()
     {
         var entry = JournalEntry.CreateDraft(Id, EntryDate, "  Groceries  ", []).Value;
@@ -114,6 +122,16 @@ public class JournalEntryTests
         updated.Description.Should().Be("Corrected groceries");
         updated.Lines.Should().Equal(newLines);
         updated.Id.Should().Be(entry.Id);
+    }
+
+    [Fact]
+    public void UpdateDraft_preserves_the_schema_version()
+    {
+        var entry = JournalEntry.CreateDraft(Id, EntryDate, "Groceries", []).Value;
+
+        var updated = entry.UpdateDraft(EntryDate, "Corrected groceries", []).Value;
+
+        updated.SchemaVersion.Should().Be(entry.SchemaVersion);
     }
 
     [Theory]

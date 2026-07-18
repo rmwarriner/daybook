@@ -16,6 +16,15 @@ namespace Daybook.Accounting.Core;
 /// </remarks>
 public sealed class JournalEntry : IEquatable<JournalEntry>
 {
+    /// <summary>
+    /// The journal-entry wire/disk-format version this entry was originally
+    /// written under (golden rule 4). Stamped once, at <see cref="CreateDraft"/>
+    /// time, and carried forward unchanged by every other operation — an
+    /// entry written under schema v1 stays v1 forever, even across edits,
+    /// posting, or reload.
+    /// </summary>
+    public const int CurrentSchemaVersion = 1;
+
     public Guid Id { get; }
 
     public DateOnly EntryDate { get; }
@@ -43,6 +52,9 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
     /// </summary>
     public Guid? ReversesEntryId { get; }
 
+    /// <summary>See <see cref="CurrentSchemaVersion"/>.</summary>
+    public int SchemaVersion { get; }
+
     private JournalEntry(
         Guid id,
         DateOnly entryDate,
@@ -52,7 +64,8 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         int? sequenceNumber,
         DateTimeOffset? postedAtUtc,
         Guid? postedByUserId,
-        Guid? reversesEntryId)
+        Guid? reversesEntryId,
+        int schemaVersion)
     {
         Id = id;
         EntryDate = entryDate;
@@ -63,6 +76,7 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         PostedAtUtc = postedAtUtc;
         PostedByUserId = postedByUserId;
         ReversesEntryId = reversesEntryId;
+        SchemaVersion = schemaVersion;
     }
 
     /// <summary>
@@ -76,7 +90,22 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         Guid id,
         DateOnly entryDate,
         string description,
-        IReadOnlyList<JournalLine> lines)
+        IReadOnlyList<JournalLine> lines) =>
+        CreateDraft(id, entryDate, description, lines, CurrentSchemaVersion);
+
+    /// <summary>
+    /// Same as the public <see cref="CreateDraft(Guid,DateOnly,string,IReadOnlyList{JournalLine})"/>,
+    /// but lets <see cref="Journal.Rehydrate"/> restore a snapshot's exact
+    /// originally-stamped <paramref name="schemaVersion"/> instead of
+    /// stamping today's <see cref="CurrentSchemaVersion"/>. Internal so
+    /// nothing outside Core can inject an arbitrary version.
+    /// </summary>
+    internal static Result<JournalEntry> CreateDraft(
+        Guid id,
+        DateOnly entryDate,
+        string description,
+        IReadOnlyList<JournalLine> lines,
+        int schemaVersion)
     {
         if (id == Guid.Empty)
         {
@@ -101,7 +130,8 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
             sequenceNumber: null,
             postedAtUtc: null,
             postedByUserId: null,
-            reversesEntryId: null);
+            reversesEntryId: null,
+            schemaVersion);
     }
 
     /// <summary>Replaces the date, description, and lines of a draft. Fails once the entry is posted.</summary>
@@ -131,7 +161,8 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
             SequenceNumber,
             PostedAtUtc,
             PostedByUserId,
-            ReversesEntryId);
+            ReversesEntryId,
+            SchemaVersion);
     }
 
     /// <summary>
@@ -146,7 +177,7 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         DateTimeOffset postedAtUtc,
         Guid postedByUserId,
         Guid? reversesEntryId = null) =>
-        new(Id, EntryDate, Description, Lines, JournalEntryStatus.Posted, sequenceNumber, postedAtUtc, postedByUserId, reversesEntryId);
+        new(Id, EntryDate, Description, Lines, JournalEntryStatus.Posted, sequenceNumber, postedAtUtc, postedByUserId, reversesEntryId, SchemaVersion);
 
     internal static Error PostedImmutable() => new(
         "entry.posted.immutable",

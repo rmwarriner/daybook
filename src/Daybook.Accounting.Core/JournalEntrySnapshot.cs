@@ -15,4 +15,5 @@ public sealed record JournalEntrySnapshot(
     int? SequenceNumber,
     DateTimeOffset? PostedAtUtc,
     Guid? PostedByUserId,
-    Guid? ReversesEntryId);
+    Guid? ReversesEntryId,
+    int SchemaVersion = JournalEntry.CurrentSchemaVersion);

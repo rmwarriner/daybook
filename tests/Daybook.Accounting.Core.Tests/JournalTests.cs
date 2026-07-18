@@ -197,6 +197,7 @@ public class JournalTests
         posted.SequenceNumber.Should().Be(1);
         posted.PostedAtUtc.Should().Be(PostedAtUtc);
         posted.PostedByUserId.Should().Be(PostedByUserId);
+        posted.SchemaVersion.Should().Be(JournalEntry.CurrentSchemaVersion);
         journal.PostedEntries.Should().ContainSingle().Which.Id.Should().Be(id);
         journal.Drafts.Should().BeEmpty();
     }
@@ -398,6 +399,7 @@ public class JournalTests
             l.AccountId == checking.Id && l.Side == Side.Credit && l.Amount == Money.Of(100m, Currency.Usd));
         reversal.Lines.Should().Contain(l =>
             l.AccountId == salary.Id && l.Side == Side.Debit && l.Amount == Money.Of(100m, Currency.Usd));
+        reversal.SchemaVersion.Should().Be(JournalEntry.CurrentSchemaVersion);
 
         journal.ReversalOf(originalId).Should().Be(reversalId);
         journal.IsReversed(originalId).Should().BeTrue();
@@ -546,6 +548,23 @@ public class JournalTests
 
         journal.Drafts.Should().BeEmpty();
         journal.PostedEntries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Rehydrate_restores_a_snapshots_stamped_schema_version_verbatim()
+    {
+        // Not a real historical version - there's only ever been one - just
+        // a stand-in to prove Rehydrate carries forward whatever value was
+        // loaded instead of silently re-stamping it as CurrentSchemaVersion.
+        const int notCurrentVersion = JournalEntry.CurrentSchemaVersion + 1;
+        var (_, checking, salary) = AChart();
+        var id = Guid.NewGuid();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var snapshot = ADraftSnapshot(id, lines) with { SchemaVersion = notCurrentVersion };
+
+        var journal = Journal.Rehydrate(Currency.Usd, [snapshot]);
+
+        journal.Find(id)!.SchemaVersion.Should().Be(notCurrentVersion);
     }
 
     [Fact]
