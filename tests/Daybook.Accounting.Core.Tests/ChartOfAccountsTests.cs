@@ -335,6 +335,184 @@ public class ChartOfAccountsTests
         chart.ClearPlaceholder(account.Id).Value.IsPlaceholder.Should().BeFalse();
     }
 
+    // ---- Tags (spec §4.8) -----------------------------------------------
+
+    [Fact]
+    public void AddTag_tags_the_account()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var account = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
+        var registry = TagRegistry.Empty();
+        var tag = registry.Create(Guid.NewGuid(), "Business").Value;
+
+        var result = chart.AddTag(account.Id, tag.Id, registry);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Tags.Should().Equal(tag.Id);
+        chart.Find(account.Id)!.Tags.Should().Equal(tag.Id);
+    }
+
+    [Fact]
+    public void AddTag_rejects_an_unknown_account()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var registry = TagRegistry.Empty();
+        var tag = registry.Create(Guid.NewGuid(), "Business").Value;
+
+        var result = chart.AddTag(Guid.NewGuid(), tag.Id, registry);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("account.not_found");
+    }
+
+    [Fact]
+    public void AddTag_rejects_a_tag_not_in_the_registry()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var account = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
+        var registry = TagRegistry.Empty();
+
+        var result = chart.AddTag(account.Id, Guid.NewGuid(), registry);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("account.tag.not_found");
+    }
+
+    [Fact]
+    public void RemoveTag_untags_the_account()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var account = chart.AddRoot(Guid.NewGuid(), "Checking", AccountType.Asset).Value;
+        var registry = TagRegistry.Empty();
+        var tag = registry.Create(Guid.NewGuid(), "Business").Value;
+        chart.AddTag(account.Id, tag.Id, registry);
+
+        var result = chart.RemoveTag(account.Id, tag.Id);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Tags.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RemoveTag_rejects_an_unknown_account()
+    {
+        var chart = ChartOfAccounts.Empty();
+
+        var result = chart.RemoveTag(Guid.NewGuid(), Guid.NewGuid());
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("account.not_found");
+    }
+
+    // ---- EffectiveTagsOf (spec §4.8 tag inheritance) ---------------------
+
+    [Fact]
+    public void EffectiveTagsOf_a_root_is_just_its_own_tags()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var registry = TagRegistry.Empty();
+        var tag = registry.Create(Guid.NewGuid(), "Business").Value;
+        var root = chart.AddRoot(Guid.NewGuid(), "Utilities", AccountType.Expense).Value;
+        chart.AddTag(root.Id, tag.Id, registry);
+
+        chart.EffectiveTagsOf(root.Id).Value.Should().Equal(tag.Id);
+    }
+
+    [Fact]
+    public void EffectiveTagsOf_a_child_includes_its_parents_tags()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var registry = TagRegistry.Empty();
+        var parentTag = registry.Create(Guid.NewGuid(), "Business").Value;
+        var childTag = registry.Create(Guid.NewGuid(), "Deductible").Value;
+        var root = chart.AddRoot(Guid.NewGuid(), "Utilities", AccountType.Expense).Value;
+        var child = chart.AddChild(Guid.NewGuid(), root.Id, "Electric", AccountType.Expense).Value;
+        chart.AddTag(root.Id, parentTag.Id, registry);
+        chart.AddTag(child.Id, childTag.Id, registry);
+
+        chart.EffectiveTagsOf(child.Id).Value.Should().BeEquivalentTo([parentTag.Id, childTag.Id]);
+        chart.EffectiveTagsOf(root.Id).Value.Should().Equal(parentTag.Id);
+    }
+
+    [Fact]
+    public void EffectiveTagsOf_a_grandchild_includes_every_ancestor()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var registry = TagRegistry.Empty();
+        var rootTag = registry.Create(Guid.NewGuid(), "Root").Value;
+        var childTag = registry.Create(Guid.NewGuid(), "Child").Value;
+        var grandchildTag = registry.Create(Guid.NewGuid(), "Grandchild").Value;
+        var root = chart.AddRoot(Guid.NewGuid(), "Root", AccountType.Expense).Value;
+        var child = chart.AddChild(Guid.NewGuid(), root.Id, "Child", AccountType.Expense).Value;
+        var grandchild = chart.AddChild(Guid.NewGuid(), child.Id, "Grandchild", AccountType.Expense).Value;
+        chart.AddTag(root.Id, rootTag.Id, registry);
+        chart.AddTag(child.Id, childTag.Id, registry);
+        chart.AddTag(grandchild.Id, grandchildTag.Id, registry);
+
+        chart.EffectiveTagsOf(grandchild.Id).Value.Should().BeEquivalentTo([rootTag.Id, childTag.Id, grandchildTag.Id]);
+    }
+
+    [Fact]
+    public void EffectiveTagsOf_dedupes_a_tag_shared_by_an_account_and_its_ancestor()
+    {
+        var chart = ChartOfAccounts.Empty();
+        var registry = TagRegistry.Empty();
+        var sharedTag = registry.Create(Guid.NewGuid(), "Shared").Value;
+        var root = chart.AddRoot(Guid.NewGuid(), "Utilities", AccountType.Expense).Value;
+        var child = chart.AddChild(Guid.NewGuid(), root.Id, "Electric", AccountType.Expense).Value;
+        chart.AddTag(root.Id, sharedTag.Id, registry);
+        chart.AddTag(child.Id, sharedTag.Id, registry);
+
+        chart.EffectiveTagsOf(child.Id).Value.Should().Equal(sharedTag.Id);
+    }
+
+    [Fact]
+    public void EffectiveTagsOf_an_unknown_account_fails()
+    {
+        var chart = ChartOfAccounts.Empty();
+
+        var result = chart.EffectiveTagsOf(Guid.NewGuid());
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("account.not_found");
+    }
+
+    [Fact]
+    public void Property_effective_tags_is_always_a_superset_of_every_ancestors_own_tags()
+    {
+        Gen.Int[1, 1000].Sample(seed =>
+        {
+            var random = new Random(seed);
+            var (chart, ids) = BuildRandomTree(seed, AccountType.Expense);
+            var registry = TagRegistry.Empty();
+            var tagPool = Enumerable.Range(0, 3).Select(_ => registry.Create(Guid.NewGuid(), $"Tag{_}").Value.Id).ToList();
+
+            foreach (var id in ids)
+            {
+                if (random.Next(0, 2) == 0)
+                {
+                    chart.AddTag(id, tagPool[random.Next(0, tagPool.Count)], registry);
+                }
+            }
+
+            foreach (var id in ids)
+            {
+                var effectiveTags = chart.EffectiveTagsOf(id).Value;
+                var current = chart.Find(id)!;
+                while (current.ParentAccountId is Guid parentId)
+                {
+                    var parent = chart.Find(parentId)!;
+                    if (parent.Tags.Count > 0)
+                    {
+                        effectiveTags.Should().Contain(parent.Tags);
+                    }
+
+                    current = parent;
+                }
+            }
+        });
+    }
+
     // ---- Display path -------------------------------------------------
 
     [Fact]

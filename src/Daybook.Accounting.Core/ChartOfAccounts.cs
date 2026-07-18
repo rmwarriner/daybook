@@ -163,6 +163,54 @@ public sealed class ChartOfAccounts
 
     public Result<Account> ClearPlaceholder(Guid accountId) => Mutate(accountId, a => a.ClearPlaceholder());
 
+    /// <summary>
+    /// Tags <paramref name="accountId"/> with <paramref name="tagId"/>.
+    /// Cross-aggregate — validates the tag exists in <paramref name="registry"/>,
+    /// context <see cref="Account"/> doesn't have on its own.
+    /// </summary>
+    public Result<Account> AddTag(Guid accountId, Guid tagId, TagRegistry registry)
+    {
+        var account = Find(accountId);
+        if (account is null)
+        {
+            return AccountNotFound(accountId);
+        }
+
+        if (registry.Find(tagId) is null)
+        {
+            return TagNotFound(tagId);
+        }
+
+        return Store(account.AddTag(tagId));
+    }
+
+    /// <summary>Untags an account. No registry needed — unlinking a reference never needs to validate it still exists.</summary>
+    public Result<Account> RemoveTag(Guid accountId, Guid tagId) => Mutate(accountId, a => a.RemoveTag(tagId));
+
+    /// <summary>
+    /// The account's own tags plus every ancestor's own tags (spec §4.8) —
+    /// derived at read time, never stored. Mirrors <see cref="DisplayPathOf"/>'s
+    /// upward walk from the account to the root.
+    /// </summary>
+    public Result<IReadOnlySet<Guid>> EffectiveTagsOf(Guid accountId)
+    {
+        var account = Find(accountId);
+        if (account is null)
+        {
+            return AccountNotFound(accountId);
+        }
+
+        var tags = new HashSet<Guid>();
+        Account? current = account;
+        while (current is not null)
+        {
+            tags.UnionWith(current.Tags);
+            current = current.ParentAccountId is { } parentId ? Find(parentId) : null;
+        }
+
+        return tags;
+    }
+
     /// <summary>The derived, readable path (e.g. <c>Utilities:Electric</c>) from the root down to this account.</summary>
     public Result<string> DisplayPathOf(Guid accountId)
     {
@@ -280,6 +328,12 @@ public sealed class ChartOfAccounts
             "A sub-account must share its parent's root type.",
             $"Choose a parent of type '{childType}', or a different account to reparent.",
         ]);
+
+    private static Error TagNotFound(Guid tagId) => new(
+        "account.tag.not_found",
+        ErrorCategory.Validation,
+        $"No tag with id '{tagId}' exists in the given registry.",
+        ["Check the tag id, or create the tag first."]);
 
     private static Error Cycle(Guid accountId, Guid newParentId) => new(
         "account.hierarchy.cycle",
