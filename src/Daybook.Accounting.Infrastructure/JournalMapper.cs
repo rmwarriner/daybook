@@ -20,6 +20,7 @@ internal static class JournalMapper
             PostedAtUtc = e.PostedAtUtc,
             PostedByUserId = e.PostedByUserId,
             ReversesEntryId = e.ReversesEntryId,
+            SchemaVersion = e.SchemaVersion,
         }).ToList();
 
     public static IReadOnlyList<JournalLineEntity> ToLineEntities(Journal journal) =>
@@ -58,7 +59,8 @@ internal static class JournalMapper
             e.SequenceNumber,
             e.PostedAtUtc,
             e.PostedByUserId,
-            e.ReversesEntryId));
+            e.ReversesEntryId,
+            e.SchemaVersion));
 
         return Journal.Rehydrate(baseCurrency, snapshots);
     }

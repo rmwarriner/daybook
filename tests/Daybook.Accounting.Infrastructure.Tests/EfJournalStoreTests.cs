@@ -93,6 +93,7 @@ public sealed class EfJournalStoreTests : IDisposable
         entry.EntryDate.Should().Be(EntryDate);
         entry.Description.Should().Be("Groceries");
         entry.SequenceNumber.Should().BeNull();
+        entry.SchemaVersion.Should().Be(JournalEntry.CurrentSchemaVersion);
         entry.Lines.Should().HaveCount(2);
         entry.Lines.Should().Contain(l =>
             l.AccountId == checking.Id && l.Side == Side.Debit &&
@@ -100,6 +101,41 @@ public sealed class EfJournalStoreTests : IDisposable
         entry.Lines.Should().Contain(l =>
             l.AccountId == salary.Id && l.Side == Side.Credit &&
             l.Amount == Money.Of(42.50m, Currency.Usd) && l.Memo == null);
+    }
+
+    private DaybookDbContext AFreshContext()
+    {
+        var options = new DbContextOptionsBuilder<DaybookDbContext>().UseSqlite($"Data Source={_dbPath}").Options;
+        return new DaybookDbContext(options);
+    }
+
+    [Fact]
+    public async Task Schema_version_is_read_from_its_own_persisted_column_not_defaulted()
+    {
+        // JournalEntrySnapshot.SchemaVersion defaults to CurrentSchemaVersion,
+        // so a plain save-then-reload round trip can't tell "genuinely
+        // persisted" apart from "silently defaulted." Writing a distinct
+        // value directly via raw SQL - bypassing the store entirely - and
+        // proving LoadAsync reflects it is the only way to be sure the
+        // column is real and actually read. A fresh context reads the raw
+        // update and reloads it - reusing the tracking _context here would
+        // just return its already-tracked (stale) in-memory instance.
+        var (bookId, _, checking, salary) = await ABookWithAccountsAsync();
+        var journal = Journal.Empty(Currency.Usd);
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Groceries", [ADebit(checking.Id, 10m), ACredit(salary.Id, 10m)]);
+        await _store.SaveAsync(bookId, journal);
+
+        await using (var rawContext = AFreshContext())
+        {
+            await rawContext.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE JournalEntries SET SchemaVersion = 2 WHERE Id = {id}");
+        }
+
+        await using var freshContext = AFreshContext();
+        var loaded = await new EfJournalStore(freshContext).LoadAsync(bookId, Currency.Usd);
+
+        loaded.Find(id)!.SchemaVersion.Should().Be(2);
     }
 
     [Fact]

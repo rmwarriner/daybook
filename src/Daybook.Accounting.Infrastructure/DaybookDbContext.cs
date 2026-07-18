@@ -47,6 +47,7 @@ public sealed class DaybookDbContext(DbContextOptions<DaybookDbContext> options)
             entry.HasKey(x => x.Id);
             entry.Property(x => x.Description).IsRequired();
             entry.Property(x => x.Status).HasConversion<string>().IsRequired();
+            entry.Property(x => x.SchemaVersion).IsRequired();
             entry.HasIndex(x => new { x.BookId, x.SequenceNumber }).IsUnique();
             entry.HasOne<BookEntity>().WithMany().HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
             entry.HasOne<JournalEntryEntity>().WithMany().HasForeignKey(x => x.ReversesEntryId).OnDelete(DeleteBehavior.Restrict);

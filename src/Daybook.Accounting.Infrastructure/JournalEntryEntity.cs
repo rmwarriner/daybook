@@ -27,4 +27,6 @@ internal sealed class JournalEntryEntity
     public Guid? PostedByUserId { get; set; }
 
     public Guid? ReversesEntryId { get; set; }
+
+    public int SchemaVersion { get; set; }
 }
