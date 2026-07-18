@@ -128,7 +128,7 @@ public sealed class Journal
         foreach (var snapshot in snapshots)
         {
             var draft = JournalEntry.CreateDraft(
-                snapshot.Id, snapshot.EntryDate, snapshot.Description, snapshot.Lines, snapshot.SchemaVersion);
+                snapshot.Id, snapshot.EntryDate, snapshot.Description, snapshot.Lines, snapshot.SchemaVersion, references: []);
             if (draft.IsFailure)
             {
                 throw new InvalidOperationException(

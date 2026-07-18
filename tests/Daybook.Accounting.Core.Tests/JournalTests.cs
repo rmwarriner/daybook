@@ -372,6 +372,36 @@ public class JournalTests
         journal.Find(id).Should().NotBeNull();
     }
 
+    [Fact]
+    public void A_posted_entrys_references_cannot_be_added()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty(Currency.Usd);
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 10m), ACredit(salary.Id, 10m)]);
+        journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+
+        var result = journal.Find(id)!.AddReference(Reference.Create(ReferenceType.Check, "1234").Value);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("entry.posted.immutable");
+    }
+
+    [Fact]
+    public void A_posted_entrys_references_cannot_be_removed()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty(Currency.Usd);
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 10m), ACredit(salary.Id, 10m)]);
+        journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+
+        var result = journal.Find(id)!.RemoveReference(Reference.Create(ReferenceType.Check, "1234").Value);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("entry.posted.immutable");
+    }
+
     // ---- Reverse --------------------------------------------------------
 
     [Fact]

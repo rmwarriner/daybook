@@ -147,6 +147,63 @@ public class JournalEntryTests
         result.Error.Code.Should().Be("entry.description.required");
     }
 
+    // ---- References (spec §4.3.1) ------------------------------------------
+
+    private static Reference ACheckReference(string value = "1234") =>
+        Reference.Create(ReferenceType.Check, value).Value;
+
+    [Fact]
+    public void CreateDraft_defaults_to_no_references()
+    {
+        var entry = JournalEntry.CreateDraft(Id, EntryDate, "Groceries", []).Value;
+
+        entry.References.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AddReference_appends_leaving_everything_else_untouched()
+    {
+        var entry = JournalEntry.CreateDraft(Id, EntryDate, "Groceries", []).Value;
+        var reference = ACheckReference();
+
+        var updated = entry.AddReference(reference).Value;
+
+        updated.References.Should().Equal(reference);
+        updated.Description.Should().Be(entry.Description);
+    }
+
+    [Fact]
+    public void AddReference_leaves_the_original_instance_untouched()
+    {
+        var entry = JournalEntry.CreateDraft(Id, EntryDate, "Groceries", []).Value;
+
+        entry.AddReference(ACheckReference());
+
+        entry.References.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RemoveReference_removes_from_the_reference_list()
+    {
+        var entry = JournalEntry.CreateDraft(Id, EntryDate, "Groceries", []).Value;
+        var reference = ACheckReference();
+        var withReference = entry.AddReference(reference).Value;
+
+        var updated = withReference.RemoveReference(reference).Value;
+
+        updated.References.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RemoveReference_of_a_reference_not_present_is_a_no_op()
+    {
+        var entry = JournalEntry.CreateDraft(Id, EntryDate, "Groceries", []).Value;
+
+        var result = entry.RemoveReference(ACheckReference());
+
+        result.Value.References.Should().BeEmpty();
+    }
+
     // ---- Identity equality (entity, not value object) ----------------------
 
     [Fact]

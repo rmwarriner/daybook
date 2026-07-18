@@ -55,6 +55,17 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
     /// <summary>See <see cref="CurrentSchemaVersion"/>.</summary>
     public int SchemaVersion { get; }
 
+    /// <summary>
+    /// Typed identifying metadata (check numbers, ACH/wire confirmations,
+    /// etc. — spec §4.3.1) riding alongside this entry. Frozen at post, like
+    /// <see cref="Description"/>/<see cref="Lines"/> — never part of the
+    /// balancing math. Added/removed one at a time via
+    /// <see cref="AddReference"/>/<see cref="RemoveReference"/>, not
+    /// threaded through <see cref="CreateDraft(Guid,DateOnly,string,IReadOnlyList{JournalLine})"/>
+    /// — a new entry always starts with none, same as <c>Account.Tags</c>.
+    /// </summary>
+    public IReadOnlyList<Reference> References { get; }
+
     private JournalEntry(
         Guid id,
         DateOnly entryDate,
@@ -65,7 +76,8 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         DateTimeOffset? postedAtUtc,
         Guid? postedByUserId,
         Guid? reversesEntryId,
-        int schemaVersion)
+        int schemaVersion,
+        IReadOnlyList<Reference> references)
     {
         Id = id;
         EntryDate = entryDate;
@@ -77,6 +89,7 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         PostedByUserId = postedByUserId;
         ReversesEntryId = reversesEntryId;
         SchemaVersion = schemaVersion;
+        References = references;
     }
 
     /// <summary>
@@ -91,21 +104,23 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         DateOnly entryDate,
         string description,
         IReadOnlyList<JournalLine> lines) =>
-        CreateDraft(id, entryDate, description, lines, CurrentSchemaVersion);
+        CreateDraft(id, entryDate, description, lines, CurrentSchemaVersion, references: []);
 
     /// <summary>
     /// Same as the public <see cref="CreateDraft(Guid,DateOnly,string,IReadOnlyList{JournalLine})"/>,
     /// but lets <see cref="Journal.Rehydrate"/> restore a snapshot's exact
-    /// originally-stamped <paramref name="schemaVersion"/> instead of
-    /// stamping today's <see cref="CurrentSchemaVersion"/>. Internal so
-    /// nothing outside Core can inject an arbitrary version.
+    /// originally-stamped <paramref name="schemaVersion"/> and
+    /// <paramref name="references"/> instead of starting fresh. Internal so
+    /// nothing outside Core can inject an arbitrary version or bypass
+    /// <see cref="AddReference"/>/<see cref="RemoveReference"/>.
     /// </summary>
     internal static Result<JournalEntry> CreateDraft(
         Guid id,
         DateOnly entryDate,
         string description,
         IReadOnlyList<JournalLine> lines,
-        int schemaVersion)
+        int schemaVersion,
+        IReadOnlyList<Reference> references)
     {
         if (id == Guid.Empty)
         {
@@ -131,7 +146,8 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
             postedAtUtc: null,
             postedByUserId: null,
             reversesEntryId: null,
-            schemaVersion);
+            schemaVersion,
+            references.ToList());
     }
 
     /// <summary>Replaces the date, description, and lines of a draft. Fails once the entry is posted.</summary>
@@ -162,7 +178,42 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
             PostedAtUtc,
             PostedByUserId,
             ReversesEntryId,
-            SchemaVersion);
+            SchemaVersion,
+            References);
+    }
+
+    /// <summary>Adds a reference. Fails once the entry is posted — references are frozen at post, like <see cref="Description"/>.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="reference"/> is null.</exception>
+    public Result<JournalEntry> AddReference(Reference reference)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+
+        if (Status != JournalEntryStatus.Draft)
+        {
+            return PostedImmutable();
+        }
+
+        var references = new List<Reference>(References) { reference };
+        return new JournalEntry(
+            Id, EntryDate, Description, Lines, Status, SequenceNumber, PostedAtUtc, PostedByUserId, ReversesEntryId,
+            SchemaVersion, references);
+    }
+
+    /// <summary>Removes a reference (a no-op if not present). Fails once the entry is posted.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="reference"/> is null.</exception>
+    public Result<JournalEntry> RemoveReference(Reference reference)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+
+        if (Status != JournalEntryStatus.Draft)
+        {
+            return PostedImmutable();
+        }
+
+        var references = References.Where(r => r != reference).ToList();
+        return new JournalEntry(
+            Id, EntryDate, Description, Lines, Status, SequenceNumber, PostedAtUtc, PostedByUserId, ReversesEntryId,
+            SchemaVersion, references);
     }
 
     /// <summary>
@@ -177,7 +228,7 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         DateTimeOffset postedAtUtc,
         Guid postedByUserId,
         Guid? reversesEntryId = null) =>
-        new(Id, EntryDate, Description, Lines, JournalEntryStatus.Posted, sequenceNumber, postedAtUtc, postedByUserId, reversesEntryId, SchemaVersion);
+        new(Id, EntryDate, Description, Lines, JournalEntryStatus.Posted, sequenceNumber, postedAtUtc, postedByUserId, reversesEntryId, SchemaVersion, References);
 
     internal static Error PostedImmutable() => new(
         "entry.posted.immutable",
