@@ -16,4 +16,5 @@ public sealed record JournalEntrySnapshot(
     DateTimeOffset? PostedAtUtc,
     Guid? PostedByUserId,
     Guid? ReversesEntryId,
-    int SchemaVersion = JournalEntry.CurrentSchemaVersion);
+    int SchemaVersion = JournalEntry.CurrentSchemaVersion,
+    IReadOnlyList<Reference>? References = null);

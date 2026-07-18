@@ -128,7 +128,8 @@ public sealed class Journal
         foreach (var snapshot in snapshots)
         {
             var draft = JournalEntry.CreateDraft(
-                snapshot.Id, snapshot.EntryDate, snapshot.Description, snapshot.Lines, snapshot.SchemaVersion, references: []);
+                snapshot.Id, snapshot.EntryDate, snapshot.Description, snapshot.Lines, snapshot.SchemaVersion,
+                snapshot.References ?? []);
             if (draft.IsFailure)
             {
                 throw new InvalidOperationException(
@@ -233,6 +234,54 @@ public sealed class Journal
         _byId.Remove(id);
         return entry;
     }
+
+    /// <summary>Adds a reference to an entry. Fails once the entry is posted.</summary>
+    public Result<JournalEntry> AddReference(Guid id, Reference reference)
+    {
+        var entry = Find(id);
+        if (entry is null)
+        {
+            return EntryNotFound(id);
+        }
+
+        var result = entry.AddReference(reference);
+        if (result.IsFailure)
+        {
+            return result.Error;
+        }
+
+        _byId[id] = result.Value;
+        return result.Value;
+    }
+
+    /// <summary>Removes a reference from an entry. Fails once the entry is posted.</summary>
+    public Result<JournalEntry> RemoveReference(Guid id, Reference reference)
+    {
+        var entry = Find(id);
+        if (entry is null)
+        {
+            return EntryNotFound(id);
+        }
+
+        var result = entry.RemoveReference(reference);
+        if (result.IsFailure)
+        {
+            return result.Error;
+        }
+
+        _byId[id] = result.Value;
+        return result.Value;
+    }
+
+    /// <summary>
+    /// Posted entries carrying a reference matching <paramref name="type"/>/<paramref name="value"/>
+    /// exactly — the raw lookup a duplicate-check-and-warn use case needs
+    /// (spec §4.3.1/§10). Drafts aren't included; they aren't "real" yet,
+    /// same precedent <see cref="PostedEntries"/> already sets for every
+    /// derived report.
+    /// </summary>
+    public IReadOnlyList<JournalEntry> FindByReference(ReferenceType type, string value) =>
+        PostedEntries.Where(e => e.References.Any(r => r.Type == type && r.Value == value)).ToList();
 
     /// <summary>Validates the full spec §5 checklist and, on success, posts the entry with a gapless sequence number.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="chart"/> is null.</exception>

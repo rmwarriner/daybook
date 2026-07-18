@@ -179,6 +179,100 @@ public class JournalTests
         result.Error.Code.Should().Be("entry.not_found");
     }
 
+    // ---- AddReference / RemoveReference (spec §4.3.1) --------------------
+
+    [Fact]
+    public void AddReference_updates_the_stored_entry()
+    {
+        var journal = Journal.Empty(Currency.Usd);
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Groceries", []);
+        var reference = Reference.Create(ReferenceType.Check, "1234").Value;
+
+        var result = journal.AddReference(id, reference);
+
+        result.IsSuccess.Should().BeTrue();
+        journal.Find(id)!.References.Should().Equal(reference);
+    }
+
+    [Fact]
+    public void AddReference_rejects_an_unknown_entry()
+    {
+        var journal = Journal.Empty(Currency.Usd);
+
+        var result = journal.AddReference(Guid.NewGuid(), Reference.Create(ReferenceType.Check, "1234").Value);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("entry.not_found");
+    }
+
+    [Fact]
+    public void RemoveReference_updates_the_stored_entry()
+    {
+        var journal = Journal.Empty(Currency.Usd);
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Groceries", []);
+        var reference = Reference.Create(ReferenceType.Check, "1234").Value;
+        journal.AddReference(id, reference);
+
+        var result = journal.RemoveReference(id, reference);
+
+        result.IsSuccess.Should().BeTrue();
+        journal.Find(id)!.References.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RemoveReference_rejects_an_unknown_entry()
+    {
+        var journal = Journal.Empty(Currency.Usd);
+
+        var result = journal.RemoveReference(Guid.NewGuid(), Reference.Create(ReferenceType.Check, "1234").Value);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("entry.not_found");
+    }
+
+    // ---- FindByReference (spec §4.3.1 - duplicate lookup) -----------------
+
+    [Fact]
+    public void FindByReference_finds_posted_entries_carrying_a_matching_reference()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty(Currency.Usd);
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+        var reference = Reference.Create(ReferenceType.Check, "1234").Value;
+        // References are frozen at post, so attach before posting via a fresh draft instead.
+        var secondId = Guid.NewGuid();
+        journal.CreateDraft(secondId, EntryDate, "Reimbursement", [ADebit(checking.Id, 50m), ACredit(salary.Id, 50m)]);
+        journal.AddReference(secondId, reference);
+        journal.Post(secondId, chart, PostedAtUtc, PostedByUserId);
+
+        var found = journal.FindByReference(ReferenceType.Check, "1234");
+
+        found.Should().ContainSingle().Which.Id.Should().Be(secondId);
+    }
+
+    [Fact]
+    public void FindByReference_returns_empty_when_nothing_matches()
+    {
+        var journal = Journal.Empty(Currency.Usd);
+
+        journal.FindByReference(ReferenceType.Check, "1234").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void FindByReference_ignores_drafts()
+    {
+        var journal = Journal.Empty(Currency.Usd);
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Groceries", []);
+        journal.AddReference(id, Reference.Create(ReferenceType.Check, "1234").Value);
+
+        journal.FindByReference(ReferenceType.Check, "1234").Should().BeEmpty();
+    }
+
     // ---- Post: happy path ---------------------------------------------
 
     [Fact]
@@ -595,6 +689,20 @@ public class JournalTests
         var journal = Journal.Rehydrate(Currency.Usd, [snapshot]);
 
         journal.Find(id)!.SchemaVersion.Should().Be(notCurrentVersion);
+    }
+
+    [Fact]
+    public void Rehydrate_restores_a_snapshots_references()
+    {
+        var (_, checking, salary) = AChart();
+        var id = Guid.NewGuid();
+        var lines = new[] { ADebit(checking.Id, 10m), ACredit(salary.Id, 10m) };
+        var reference = Reference.Create(ReferenceType.Check, "1234").Value;
+        var snapshot = ADraftSnapshot(id, lines) with { References = [reference] };
+
+        var journal = Journal.Rehydrate(Currency.Usd, [snapshot]);
+
+        journal.Find(id)!.References.Should().Equal(reference);
     }
 
     [Fact]
