@@ -37,6 +37,14 @@ public sealed class Account : IEquatable<Account>
     /// <summary>Inactive accounts reject new postings but keep history.</summary>
     public bool IsActive { get; }
 
+    /// <summary>
+    /// Tag-ids classifying this account (spec §4.8). Flows down the tree as
+    /// part of every descendant's effective tags (<see cref="ChartOfAccounts.EffectiveTagsOf"/>)
+    /// — never validated here, since tag-existence is cross-aggregate
+    /// context a lone <see cref="Account"/> doesn't have.
+    /// </summary>
+    public IReadOnlySet<Guid> Tags { get; }
+
     private Account(
         Guid id,
         string? code,
@@ -44,7 +52,8 @@ public sealed class Account : IEquatable<Account>
         AccountType type,
         Guid? parentAccountId,
         bool isPlaceholder,
-        bool isActive)
+        bool isActive,
+        IReadOnlySet<Guid> tags)
     {
         Id = id;
         Code = code;
@@ -53,6 +62,7 @@ public sealed class Account : IEquatable<Account>
         ParentAccountId = parentAccountId;
         IsPlaceholder = isPlaceholder;
         IsActive = isActive;
+        Tags = tags;
     }
 
     /// <exception cref="ArgumentException"><paramref name="id"/> is <see cref="Guid.Empty"/> — a caller bug, not a business rule.</exception>
@@ -90,7 +100,8 @@ public sealed class Account : IEquatable<Account>
             return codeResult.Error;
         }
 
-        return new Account(id, codeResult.Value, nameResult.Value, type, parentAccountId, isPlaceholder, isActive);
+        return new Account(
+            id, codeResult.Value, nameResult.Value, type, parentAccountId, isPlaceholder, isActive, new HashSet<Guid>());
     }
 
     /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
@@ -104,7 +115,7 @@ public sealed class Account : IEquatable<Account>
             return nameResult.Error;
         }
 
-        return new Account(Id, Code, nameResult.Value, Type, ParentAccountId, IsPlaceholder, IsActive);
+        return new Account(Id, Code, nameResult.Value, Type, ParentAccountId, IsPlaceholder, IsActive, Tags);
     }
 
     /// <summary>Sets the code, or clears it when <paramref name="code"/> is null.</summary>
@@ -116,16 +127,18 @@ public sealed class Account : IEquatable<Account>
             return codeResult.Error;
         }
 
-        return new Account(Id, codeResult.Value, Name, Type, ParentAccountId, IsPlaceholder, IsActive);
+        return new Account(Id, codeResult.Value, Name, Type, ParentAccountId, IsPlaceholder, IsActive, Tags);
     }
 
-    public Account Activate() => new(Id, Code, Name, Type, ParentAccountId, IsPlaceholder, isActive: true);
+    public Account Activate() => new(Id, Code, Name, Type, ParentAccountId, IsPlaceholder, isActive: true, Tags);
 
-    public Account Deactivate() => new(Id, Code, Name, Type, ParentAccountId, IsPlaceholder, isActive: false);
+    public Account Deactivate() => new(Id, Code, Name, Type, ParentAccountId, IsPlaceholder, isActive: false, Tags);
 
-    public Account MarkAsPlaceholder() => new(Id, Code, Name, Type, ParentAccountId, isPlaceholder: true, IsActive);
+    public Account MarkAsPlaceholder() =>
+        new(Id, Code, Name, Type, ParentAccountId, isPlaceholder: true, IsActive, Tags);
 
-    public Account ClearPlaceholder() => new(Id, Code, Name, Type, ParentAccountId, isPlaceholder: false, IsActive);
+    public Account ClearPlaceholder() =>
+        new(Id, Code, Name, Type, ParentAccountId, isPlaceholder: false, IsActive, Tags);
 
     /// <summary>
     /// Raw reparent with no tree-context validation. Internal because type
@@ -133,7 +146,19 @@ public sealed class Account : IEquatable<Account>
     /// <see cref="ChartOfAccounts"/> may call this, after checking those.
     /// </summary>
     internal Account WithParent(Guid? parentAccountId) =>
-        new(Id, Code, Name, Type, parentAccountId, IsPlaceholder, IsActive);
+        new(Id, Code, Name, Type, parentAccountId, IsPlaceholder, IsActive, Tags);
+
+    /// <summary>Adds a tag-id. Not validated against any registry — see <see cref="Tags"/>.</summary>
+    public Account AddTag(Guid tagId) =>
+        new(Id, Code, Name, Type, ParentAccountId, IsPlaceholder, IsActive, new HashSet<Guid>(Tags) { tagId });
+
+    /// <summary>Removes a tag-id. A no-op if it wasn't present.</summary>
+    public Account RemoveTag(Guid tagId)
+    {
+        var tags = new HashSet<Guid>(Tags);
+        tags.Remove(tagId);
+        return new(Id, Code, Name, Type, ParentAccountId, IsPlaceholder, IsActive, tags);
+    }
 
     private static Result<string> ValidateName(string name)
     {

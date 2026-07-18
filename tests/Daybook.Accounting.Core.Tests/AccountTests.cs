@@ -195,6 +195,71 @@ public class AccountTests
         placeholder.ClearPlaceholder().IsPlaceholder.Should().BeFalse();
     }
 
+    // ---- Tags (spec §4.8) ---------------------------------------------------
+
+    [Fact]
+    public void Create_defaults_to_no_tags()
+    {
+        var account = Account.Create(Id, "Checking", AccountType.Asset).Value;
+
+        account.Tags.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AddTag_adds_to_the_tag_set_leaving_everything_else()
+    {
+        var account = Account.Create(Id, "Checking", AccountType.Asset).Value;
+        var tagId = Guid.NewGuid();
+
+        var tagged = account.AddTag(tagId);
+
+        tagged.Tags.Should().Equal(tagId);
+        tagged.Name.Should().Be(account.Name);
+    }
+
+    [Fact]
+    public void AddTag_is_a_set_adding_the_same_tag_twice_does_not_duplicate()
+    {
+        var account = Account.Create(Id, "Checking", AccountType.Asset).Value;
+        var tagId = Guid.NewGuid();
+
+        var tagged = account.AddTag(tagId).AddTag(tagId);
+
+        tagged.Tags.Should().Equal(tagId);
+    }
+
+    [Fact]
+    public void RemoveTag_removes_from_the_tag_set()
+    {
+        var account = Account.Create(Id, "Checking", AccountType.Asset).Value;
+        var tagId = Guid.NewGuid();
+        var tagged = account.AddTag(tagId);
+
+        var untagged = tagged.RemoveTag(tagId);
+
+        untagged.Tags.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RemoveTag_of_a_tag_not_present_is_a_no_op()
+    {
+        var account = Account.Create(Id, "Checking", AccountType.Asset).Value;
+
+        var result = account.RemoveTag(Guid.NewGuid());
+
+        result.Tags.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AddTag_leaves_the_original_instance_untouched()
+    {
+        var account = Account.Create(Id, "Checking", AccountType.Asset).Value;
+
+        account.AddTag(Guid.NewGuid());
+
+        account.Tags.Should().BeEmpty();
+    }
+
     // ---- Identity equality (entity, not value object) ----------------------
 
     [Fact]
