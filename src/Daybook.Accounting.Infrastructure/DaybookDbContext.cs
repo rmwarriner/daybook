@@ -18,6 +18,8 @@ public sealed class DaybookDbContext(DbContextOptions<DaybookDbContext> options)
 
     internal DbSet<JournalLineEntity> JournalLines => Set<JournalLineEntity>();
 
+    internal DbSet<AuditLogEntryEntity> AuditLogEntries => Set<AuditLogEntryEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<BookEntity>(book =>
@@ -61,6 +63,15 @@ public sealed class DaybookDbContext(DbContextOptions<DaybookDbContext> options)
             line.Property(x => x.Currency).IsRequired().HasMaxLength(3);
             line.HasOne<JournalEntryEntity>().WithMany().HasForeignKey(x => x.EntryId).OnDelete(DeleteBehavior.Cascade);
             line.HasOne<AccountEntity>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AuditLogEntryEntity>(entry =>
+        {
+            entry.ToTable("AuditLogEntries");
+            entry.HasKey(x => x.Id);
+            entry.Property(x => x.BeforeStatus).HasConversion<string>().IsRequired();
+            entry.Property(x => x.AfterStatus).HasConversion<string>().IsRequired();
+            entry.HasOne<JournalEntryEntity>().WithMany().HasForeignKey(x => x.EntryId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
