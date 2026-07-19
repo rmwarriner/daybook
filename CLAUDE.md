@@ -62,7 +62,7 @@ Daybook.Accounting.Infrastructure (EF Core/SQLite, Serilog, crypto) ← adapter
   derivation engine live here. This is where correctness matters most and tests are heaviest.
 - **Application** orchestrates use cases and defines ports (`IJournalStore`, `IClock`,
   `ICurrentUser`, …). No infrastructure knowledge.
-- **Infrastructure** implements the ports (EF Core + SQLite/SQLCipher, Serilog, Argon2).
+- **Infrastructure** implements the ports (EF Core + SQLite/SQLite3 Multiple Ciphers, Serilog, Argon2).
 - **Api** is a thin adapter. Swappable for a desktop host later without touching Core.
 
 Never make Core or Application depend on Infrastructure or Api. If you need something from
@@ -83,7 +83,8 @@ tests/ Daybook.Accounting.{Core,Application,Infrastructure,Api}.Tests
   do NOT use FluentAssertions ≥ 8, it is commercially licensed) + a property-based library
   (FsCheck, or CsCheck for pure-C#).
 - **Logging:** Serilog (structured), with a **separate audit sink**.
-- **Persistence:** EF Core + SQLite; SQLCipher for encryption at rest.
+- **Persistence:** EF Core + SQLite; SQLite3 Multiple Ciphers (`SQLite3MC.PCLRaw.bundle`) for
+  encryption at rest — not SQLCipher; see design-spec §13.5 for why.
 - **Crypto:** Argon2id KDF for the passphrase-derived key; HMAC-anchored hash chain.
 
 Pin dependency versions. Do not introduce a dependency into **Core** without asking —

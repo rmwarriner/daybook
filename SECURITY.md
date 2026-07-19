@@ -32,8 +32,8 @@ release exists.
 
 - **Local-first, no telemetry** — the service makes no outbound calls by default.
 - **In transit:** TLS required; plain HTTP disabled or redirected.
-- **At rest:** encrypted SQLite (SQLCipher); the key is derived from a passphrase via
-  Argon2id and never hard-coded or placed in an environment variable.
+- **At rest:** encrypted SQLite (SQLite3 Multiple Ciphers); the key is derived from a
+  passphrase via Argon2id and never hard-coded or placed in an environment variable.
 - **Tamper-evidence:** posted entries are chained with an HMAC-anchored hash chain.
 - **Secrets** are read from a file path (e.g. `/run/secrets/db_passphrase`), never from
   source or env vars.

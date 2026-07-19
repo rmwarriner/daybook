@@ -60,7 +60,7 @@ tests/  Daybook.Accounting.{Core,Application,Infrastructure,Api}.Tests
 - **Testing:** xUnit + [AwesomeAssertions](https://github.com/AwesomeAssertions/AwesomeAssertions)
   (the free Apache-licensed FluentAssertions fork) + [CsCheck](https://github.com/AnthonyLloyd/CsCheck)
   for property-based tests.
-- **Persistence:** EF Core + SQLite (SQLCipher for encryption at rest).
+- **Persistence:** EF Core + SQLite ([SQLite3 Multiple Ciphers](https://github.com/utelle/SQLite3MultipleCiphers) for encryption at rest).
 - **Logging:** Serilog (structured), with a separate audit sink.
 
 ## Build & test
