@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+
 namespace Daybook.Accounting.Core;
 
 /// <summary>
@@ -19,23 +21,40 @@ namespace Daybook.Accounting.Core;
 /// </remarks>
 public sealed class Journal
 {
+    /// <summary>The "no predecessor" hash chain anchor for the first entry ever posted (spec §15.3).</summary>
+    private static readonly byte[] GenesisHash = new byte[32];
+
     private readonly Dictionary<Guid, JournalEntry> _byId = [];
     private readonly Dictionary<Guid, Guid> _reversalOf = [];
+    private readonly byte[]? _chainKey;
     private int _nextSequenceNumber = 1;
+    private byte[] _headHash = GenesisHash;
 
-    private Journal(Currency baseCurrency)
+    private Journal(Currency baseCurrency, byte[]? chainKey)
     {
         BaseCurrency = baseCurrency;
+        _chainKey = chainKey;
     }
 
     /// <summary>The currency every posted line must be denominated in (spec §5 rule 5).</summary>
     public Currency BaseCurrency { get; }
 
+    /// <summary>
+    /// <paramref name="chainKey"/> is the HMAC hash-chain key (spec §15.3),
+    /// caller-supplied like every other "who/when" value in this layer —
+    /// Core can never derive it itself (that's <c>Argon2Kdf</c>/
+    /// <c>PassphraseFile</c>, Infrastructure). Optional and defaulting to
+    /// null (chain disabled, <see cref="JournalEntry.EntryHash"/> stays
+    /// null) rather than required: nothing in this codebase can supply a
+    /// real derived key yet (no Application-layer use-case/composition-root
+    /// wiring exists), so requiring one here would force every existing
+    /// caller to pass one it can't produce for real.
+    /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="baseCurrency"/> is null.</exception>
-    public static Journal Empty(Currency baseCurrency)
+    public static Journal Empty(Currency baseCurrency, byte[]? chainKey = null)
     {
         ArgumentNullException.ThrowIfNull(baseCurrency);
-        return new Journal(baseCurrency);
+        return new Journal(baseCurrency, chainKey);
     }
 
     /// <summary>
@@ -58,7 +77,8 @@ public sealed class Journal
     /// A healthy journal can never reach this shape through normal posting,
     /// so this indicates corrupted or tampered data.
     /// </exception>
-    public static Journal Rehydrate(Currency baseCurrency, IEnumerable<JournalEntrySnapshot> entries)
+    public static Journal Rehydrate(
+        Currency baseCurrency, IEnumerable<JournalEntrySnapshot> entries, byte[]? chainKey = null)
     {
         ArgumentNullException.ThrowIfNull(baseCurrency);
         ArgumentNullException.ThrowIfNull(entries);
@@ -120,9 +140,16 @@ public sealed class Journal
             }
         }
 
-        var journal = new Journal(baseCurrency)
+        var lastPostedHash = snapshots
+            .Where(s => s.Status == JournalEntryStatus.Posted)
+            .OrderByDescending(s => s.SequenceNumber)
+            .Select(s => s.EntryHash)
+            .FirstOrDefault();
+
+        var journal = new Journal(baseCurrency, chainKey)
         {
             _nextSequenceNumber = postedSequenceNumbers.Count == 0 ? 1 : postedSequenceNumbers[^1] + 1,
+            _headHash = lastPostedHash ?? GenesisHash,
         };
 
         foreach (var snapshot in snapshots)
@@ -140,7 +167,7 @@ public sealed class Journal
                 ? draft.Value
                 : draft.Value.MarkPosted(
                     snapshot.SequenceNumber!.Value, snapshot.PostedAtUtc!.Value, snapshot.PostedByUserId!.Value,
-                    snapshot.ReversesEntryId);
+                    snapshot.EntryHash, snapshot.ReversesEntryId);
         }
 
         foreach (var (originalId, reversalId) in reversalOf)
@@ -306,9 +333,17 @@ public sealed class Journal
             return validated.Error;
         }
 
-        var posted = entry.MarkPosted(_nextSequenceNumber, postedAtUtc, postedByUserId);
+        var provisional = entry.MarkPosted(_nextSequenceNumber, postedAtUtc, postedByUserId);
+        var hash = ComputeEntryHash(provisional);
+        var posted = hash is null ? provisional : entry.MarkPosted(_nextSequenceNumber, postedAtUtc, postedByUserId, hash);
+
         _byId[id] = posted;
         _nextSequenceNumber++;
+        if (hash is not null)
+        {
+            _headHash = hash;
+        }
+
         return posted;
     }
 
@@ -371,13 +406,42 @@ public sealed class Journal
             return validated.Error;
         }
 
-        var postedReversal = draftResult.Value.MarkPosted(
+        var provisionalReversal = draftResult.Value.MarkPosted(
             _nextSequenceNumber, postedAtUtc, postedByUserId, reversesEntryId: originalEntryId);
+        var hash = ComputeEntryHash(provisionalReversal);
+        var postedReversal = hash is null
+            ? provisionalReversal
+            : draftResult.Value.MarkPosted(_nextSequenceNumber, postedAtUtc, postedByUserId, hash, originalEntryId);
 
         _byId[reversalEntryId] = postedReversal;
         _reversalOf[originalEntryId] = reversalEntryId;
         _nextSequenceNumber++;
+        if (hash is not null)
+        {
+            _headHash = hash;
+        }
+
         return postedReversal;
+    }
+
+    /// <summary>
+    /// <c>hash(canonical_content + previous_entry_hash)</c> (spec §15.3),
+    /// or null if this journal was constructed without a chain key.
+    /// </summary>
+    private byte[]? ComputeEntryHash(JournalEntry provisionalEntry)
+    {
+        if (_chainKey is null)
+        {
+            return null;
+        }
+
+        var canonicalContent = JournalEntryCanonicalForm.Serialize(provisionalEntry);
+        var input = new byte[canonicalContent.Length + _headHash.Length];
+        canonicalContent.CopyTo(input, 0);
+        _headHash.CopyTo(input, canonicalContent.Length);
+
+        using var hmac = new HMACSHA256(_chainKey);
+        return hmac.ComputeHash(input);
     }
 
     private static Side Flip(Side side) => side == Side.Debit ? Side.Credit : Side.Debit;

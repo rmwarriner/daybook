@@ -942,6 +942,125 @@ public class JournalTests
         act.Should().Throw<InvalidOperationException>();
     }
 
+    // ---- Hash chain (spec §15.3) ------------------------------------------
+
+    [Fact]
+    public void Post_leaves_entry_hash_null_without_a_chain_key()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty(Currency.Usd);
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+
+        var posted = journal.Post(id, chart, PostedAtUtc, PostedByUserId).Value;
+
+        posted.EntryHash.Should().BeNull();
+    }
+
+    [Fact]
+    public void Post_computes_an_entry_hash_when_constructed_with_a_chain_key()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty(Currency.Usd, "chain-key"u8.ToArray());
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+
+        var posted = journal.Post(id, chart, PostedAtUtc, PostedByUserId).Value;
+
+        posted.EntryHash.Should().NotBeNull();
+        posted.EntryHash.Should().HaveCount(32);
+    }
+
+    [Fact]
+    public void Reverse_computes_a_chained_entry_hash()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty(Currency.Usd, "chain-key"u8.ToArray());
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        var original = journal.Post(id, chart, PostedAtUtc, PostedByUserId).Value;
+
+        var reversal = journal.Reverse(id, Guid.NewGuid(), chart, EntryDate, "Reversal", PostedAtUtc, PostedByUserId).Value;
+
+        reversal.EntryHash.Should().NotBeNull();
+        reversal.EntryHash.Should().NotEqual(original.EntryHash);
+    }
+
+    [Fact]
+    public void An_entrys_hash_depends_on_the_previous_entrys_hash_not_just_its_own_content()
+    {
+        // Isolates the actual chaining property: two journals whose first
+        // entries differ (so their hashes differ), then the exact same
+        // second entry (same id, lines, accounts, sequence number) posted
+        // into each. If the second entry's hash still differs between the
+        // two journals, that difference can only come from _headHash -
+        // proof this is a real chain, not independent per-entry hashing.
+        var chainKey = "chain-key"u8.ToArray();
+        var checkingId = Guid.NewGuid();
+        var salaryId = Guid.NewGuid();
+
+        ChartOfAccounts AChartWithFixedIds()
+        {
+            var chart = ChartOfAccounts.Empty();
+            chart.AddRoot(checkingId, "Checking", AccountType.Asset);
+            chart.AddRoot(salaryId, "Salary", AccountType.Income);
+            return chart;
+        }
+
+        var chartA = AChartWithFixedIds();
+        var journalA = Journal.Empty(Currency.Usd, chainKey);
+        var firstIdA = Guid.NewGuid();
+        journalA.CreateDraft(firstIdA, EntryDate, "First A", [ADebit(checkingId, 10m), ACredit(salaryId, 10m)]);
+        journalA.Post(firstIdA, chartA, PostedAtUtc, PostedByUserId);
+
+        var chartB = AChartWithFixedIds();
+        var journalB = Journal.Empty(Currency.Usd, chainKey);
+        var firstIdB = Guid.NewGuid();
+        journalB.CreateDraft(firstIdB, EntryDate, "First B", [ADebit(checkingId, 20m), ACredit(salaryId, 20m)]);
+        journalB.Post(firstIdB, chartB, PostedAtUtc, PostedByUserId);
+
+        var secondId = Guid.NewGuid();
+        journalA.CreateDraft(secondId, EntryDate, "Second", [ADebit(checkingId, 5m), ACredit(salaryId, 5m)]);
+        var secondEntryA = journalA.Post(secondId, chartA, PostedAtUtc, PostedByUserId).Value;
+
+        journalB.CreateDraft(secondId, EntryDate, "Second", [ADebit(checkingId, 5m), ACredit(salaryId, 5m)]);
+        var secondEntryB = journalB.Post(secondId, chartB, PostedAtUtc, PostedByUserId).Value;
+
+        secondEntryA.EntryHash.Should().NotEqual(secondEntryB.EntryHash);
+    }
+
+    [Fact]
+    public void Rehydrate_seeds_the_head_hash_so_a_newly_posted_entry_continues_the_same_chain()
+    {
+        var chainKey = "chain-key"u8.ToArray();
+        var (chart, checking, salary) = AChart();
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+
+        // Continuous: both entries posted in one journal, no reload.
+        var continuous = Journal.Empty(Currency.Usd, chainKey);
+        continuous.CreateDraft(firstId, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        continuous.Post(firstId, chart, PostedAtUtc, PostedByUserId);
+        continuous.CreateDraft(secondId, EntryDate, "Rent", [ADebit(checking.Id, 50m), ACredit(salary.Id, 50m)]);
+        var continuousSecond = continuous.Post(secondId, chart, PostedAtUtc, PostedByUserId).Value;
+
+        // Reloaded: post the first entry, capture it as a snapshot exactly
+        // as a store would, rehydrate fresh, then post the second entry.
+        var firstSession = Journal.Empty(Currency.Usd, chainKey);
+        firstSession.CreateDraft(firstId, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        var firstEntry = firstSession.Post(firstId, chart, PostedAtUtc, PostedByUserId).Value;
+        var snapshot = new JournalEntrySnapshot(
+            firstEntry.Id, firstEntry.EntryDate, firstEntry.Description, firstEntry.Lines, firstEntry.Status,
+            firstEntry.SequenceNumber, firstEntry.PostedAtUtc, firstEntry.PostedByUserId, firstEntry.ReversesEntryId,
+            firstEntry.SchemaVersion, firstEntry.References, firstEntry.EntryHash);
+
+        var reloaded = Journal.Rehydrate(Currency.Usd, [snapshot], chainKey);
+        reloaded.CreateDraft(secondId, EntryDate, "Rent", [ADebit(checking.Id, 50m), ACredit(salary.Id, 50m)]);
+        var reloadedSecond = reloaded.Post(secondId, chart, PostedAtUtc, PostedByUserId).Value;
+
+        reloadedSecond.EntryHash.Should().Equal(continuousSecond.EntryHash);
+    }
+
     // ---- Property-based: the central accounting invariant -------------
 
     [Fact]

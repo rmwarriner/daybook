@@ -66,6 +66,15 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
     /// </summary>
     public IReadOnlyList<Reference> References { get; }
 
+    /// <summary>
+    /// The HMAC hash-chain link (spec §15.3): <c>hash(canonical_content +
+    /// previous_entry_hash)</c>, computed once at post time and never
+    /// touched again. Null until posted, and null even once posted if the
+    /// owning <see cref="Journal"/> was constructed without a chain key —
+    /// chaining is opt-in (see <see cref="Journal"/>'s remarks).
+    /// </summary>
+    public byte[]? EntryHash { get; }
+
     private JournalEntry(
         Guid id,
         DateOnly entryDate,
@@ -77,7 +86,8 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         Guid? postedByUserId,
         Guid? reversesEntryId,
         int schemaVersion,
-        IReadOnlyList<Reference> references)
+        IReadOnlyList<Reference> references,
+        byte[]? entryHash)
     {
         Id = id;
         EntryDate = entryDate;
@@ -90,6 +100,7 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         ReversesEntryId = reversesEntryId;
         SchemaVersion = schemaVersion;
         References = references;
+        EntryHash = entryHash;
     }
 
     /// <summary>
@@ -147,7 +158,8 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
             postedByUserId: null,
             reversesEntryId: null,
             schemaVersion,
-            references.ToList());
+            references.ToList(),
+            entryHash: null);
     }
 
     /// <summary>Replaces the date, description, and lines of a draft. Fails once the entry is posted.</summary>
@@ -179,7 +191,8 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
             PostedByUserId,
             ReversesEntryId,
             SchemaVersion,
-            References);
+            References,
+            EntryHash);
     }
 
     /// <summary>Adds a reference. Fails once the entry is posted — references are frozen at post, like <see cref="Description"/>.</summary>
@@ -196,7 +209,7 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         var references = new List<Reference>(References) { reference };
         return new JournalEntry(
             Id, EntryDate, Description, Lines, Status, SequenceNumber, PostedAtUtc, PostedByUserId, ReversesEntryId,
-            SchemaVersion, references);
+            SchemaVersion, references, EntryHash);
     }
 
     /// <summary>Removes a reference (a no-op if not present). Fails once the entry is posted.</summary>
@@ -213,7 +226,7 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         var references = References.Where(r => r != reference).ToList();
         return new JournalEntry(
             Id, EntryDate, Description, Lines, Status, SequenceNumber, PostedAtUtc, PostedByUserId, ReversesEntryId,
-            SchemaVersion, references);
+            SchemaVersion, references, EntryHash);
     }
 
     /// <summary>
@@ -227,8 +240,9 @@ public sealed class JournalEntry : IEquatable<JournalEntry>
         int sequenceNumber,
         DateTimeOffset postedAtUtc,
         Guid postedByUserId,
+        byte[]? entryHash = null,
         Guid? reversesEntryId = null) =>
-        new(Id, EntryDate, Description, Lines, JournalEntryStatus.Posted, sequenceNumber, postedAtUtc, postedByUserId, reversesEntryId, SchemaVersion, References);
+        new(Id, EntryDate, Description, Lines, JournalEntryStatus.Posted, sequenceNumber, postedAtUtc, postedByUserId, reversesEntryId, SchemaVersion, References, entryHash);
 
     internal static Error PostedImmutable() => new(
         "entry.posted.immutable",
