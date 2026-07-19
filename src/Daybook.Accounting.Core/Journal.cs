@@ -428,20 +428,54 @@ public sealed class Journal
     /// <c>hash(canonical_content + previous_entry_hash)</c> (spec §15.3),
     /// or null if this journal was constructed without a chain key.
     /// </summary>
-    private byte[]? ComputeEntryHash(JournalEntry provisionalEntry)
+    private byte[]? ComputeEntryHash(JournalEntry provisionalEntry) =>
+        _chainKey is null ? null : ComputeChainHash(provisionalEntry, _headHash);
+
+    private byte[] ComputeChainHash(JournalEntry entry, byte[] previousHash)
+    {
+        var canonicalContent = JournalEntryCanonicalForm.Serialize(entry);
+        var input = new byte[canonicalContent.Length + previousHash.Length];
+        canonicalContent.CopyTo(input, 0);
+        previousHash.CopyTo(input, canonicalContent.Length);
+
+        using var hmac = new HMACSHA256(_chainKey!);
+        return hmac.ComputeHash(input);
+    }
+
+    /// <summary>
+    /// Walks <see cref="PostedEntries"/> in sequence order, recomputing each
+    /// entry's expected hash-chain link and comparing it to what's stored
+    /// (spec §15.3). Stops at the first mismatch or gap rather than
+    /// collecting every affected entry — enough to know the chain is
+    /// broken and where to start investigating.
+    /// </summary>
+    public ChainVerificationResult VerifyChain()
     {
         if (_chainKey is null)
         {
-            return null;
+            return new ChainVerificationResult(ChainVerificationStatus.NoChainKeyConfigured, null, null);
         }
 
-        var canonicalContent = JournalEntryCanonicalForm.Serialize(provisionalEntry);
-        var input = new byte[canonicalContent.Length + _headHash.Length];
-        canonicalContent.CopyTo(input, 0);
-        _headHash.CopyTo(input, canonicalContent.Length);
+        var previousHash = GenesisHash;
+        foreach (var entry in PostedEntries)
+        {
+            if (entry.EntryHash is null)
+            {
+                return new ChainVerificationResult(
+                    ChainVerificationStatus.ChainNotFullyPopulated, entry.Id, entry.SequenceNumber);
+            }
 
-        using var hmac = new HMACSHA256(_chainKey);
-        return hmac.ComputeHash(input);
+            var expectedHash = ComputeChainHash(entry, previousHash);
+            if (!expectedHash.AsSpan().SequenceEqual(entry.EntryHash))
+            {
+                return new ChainVerificationResult(
+                    ChainVerificationStatus.Tampered, entry.Id, entry.SequenceNumber);
+            }
+
+            previousHash = expectedHash;
+        }
+
+        return new ChainVerificationResult(ChainVerificationStatus.Intact, null, null);
     }
 
     private static Side Flip(Side side) => side == Side.Debit ? Side.Credit : Side.Debit;

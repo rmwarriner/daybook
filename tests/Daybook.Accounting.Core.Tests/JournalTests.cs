@@ -1061,6 +1061,88 @@ public class JournalTests
         reloadedSecond.EntryHash.Should().Equal(continuousSecond.EntryHash);
     }
 
+    [Fact]
+    public void VerifyChain_reports_intact_for_a_healthy_chained_journal()
+    {
+        var chainKey = "chain-key"u8.ToArray();
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty(Currency.Usd, chainKey);
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        journal.CreateDraft(firstId, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(firstId, chart, PostedAtUtc, PostedByUserId);
+        journal.CreateDraft(secondId, EntryDate, "Rent", [ADebit(checking.Id, 50m), ACredit(salary.Id, 50m)]);
+        journal.Post(secondId, chart, PostedAtUtc, PostedByUserId);
+
+        var result = journal.VerifyChain();
+
+        result.Status.Should().Be(ChainVerificationStatus.Intact);
+        result.FirstAffectedEntryId.Should().BeNull();
+        result.FirstAffectedSequenceNumber.Should().BeNull();
+    }
+
+    [Fact]
+    public void VerifyChain_reports_no_chain_key_configured_without_one()
+    {
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty(Currency.Usd);
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        journal.Post(id, chart, PostedAtUtc, PostedByUserId);
+
+        var result = journal.VerifyChain();
+
+        result.Status.Should().Be(ChainVerificationStatus.NoChainKeyConfigured);
+    }
+
+    [Fact]
+    public void VerifyChain_reports_chain_not_fully_populated_when_a_posted_entry_has_no_stored_hash()
+    {
+        // A journal rehydrated from history that predates chaining being
+        // enabled: posted, but no EntryHash was ever stored for it.
+        var chainKey = "chain-key"u8.ToArray();
+        var (_, checking, salary) = AChart();
+        var id = Guid.NewGuid();
+        var snapshot = new JournalEntrySnapshot(
+            id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)],
+            JournalEntryStatus.Posted, 1, PostedAtUtc, PostedByUserId, null);
+        var journal = Journal.Rehydrate(Currency.Usd, [snapshot], chainKey);
+
+        var result = journal.VerifyChain();
+
+        result.Status.Should().Be(ChainVerificationStatus.ChainNotFullyPopulated);
+        result.FirstAffectedEntryId.Should().Be(id);
+        result.FirstAffectedSequenceNumber.Should().Be(1);
+    }
+
+    [Fact]
+    public void VerifyChain_reports_tampered_when_a_stored_hash_does_not_match_its_recomputed_value()
+    {
+        var chainKey = "chain-key"u8.ToArray();
+        var (chart, checking, salary) = AChart();
+        var journal = Journal.Empty(Currency.Usd, chainKey);
+        var id = Guid.NewGuid();
+        journal.CreateDraft(id, EntryDate, "Paycheck", [ADebit(checking.Id, 100m), ACredit(salary.Id, 100m)]);
+        var posted = journal.Post(id, chart, PostedAtUtc, PostedByUserId).Value;
+
+        // Same technique as the append-only guard's tampered-snapshot tests:
+        // construct a snapshot with a deliberately wrong stored hash, as if
+        // the row had been altered on disk after posting.
+        var tamperedHash = new byte[32];
+        Array.Fill(tamperedHash, (byte)0xFF);
+        var tamperedSnapshot = new JournalEntrySnapshot(
+            posted.Id, posted.EntryDate, posted.Description, posted.Lines, posted.Status,
+            posted.SequenceNumber, posted.PostedAtUtc, posted.PostedByUserId, posted.ReversesEntryId,
+            posted.SchemaVersion, posted.References, tamperedHash);
+        var reloaded = Journal.Rehydrate(Currency.Usd, [tamperedSnapshot], chainKey);
+
+        var result = reloaded.VerifyChain();
+
+        result.Status.Should().Be(ChainVerificationStatus.Tampered);
+        result.FirstAffectedEntryId.Should().Be(posted.Id);
+        result.FirstAffectedSequenceNumber.Should().Be(posted.SequenceNumber);
+    }
+
     // ---- Property-based: the central accounting invariant -------------
 
     [Fact]
