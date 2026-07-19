@@ -441,11 +441,12 @@ Reports are produced as **data first** (JSON), with presenters that render print
 - **Rootless Podman is recommended** (no root daemon = smaller attack surface). Map the data volume with correct user-namespace ownership (e.g. `:U` or `--userns=keep-id`) so the container user can write the SQLite file.
 
 ### 13.5 Key custody (resolves the earlier open question)
-- The passphrase is an **input, never the key**. At startup the app reads it from a fixed file path (`/run/secrets/db_passphrase`), so the *source* is swappable without code changes.
-- Derive the data-encryption key with **Argon2id** (a KDF) — the raw passphrase is never used directly as the key.
-- Use **envelope encryption**: the passphrase-derived key-encryption-key wraps a stored data-encryption-key. Rotating the passphrase re-wraps the stored key — **no full-database re-encryption**.
+- The passphrase is an **input, never the key**. At startup the app reads it from a fixed file path (`/run/secrets/db_passphrase`), so the *source* is swappable without code changes. **Built**: `PassphraseFile.Read`.
+- Derive the data-encryption key with **Argon2id** (a KDF) — the raw passphrase is never used directly as the key. **Built**: `Argon2Kdf` (128 MiB / 3 iterations / p=1 — OWASP's cited "enhanced" profile, not their bare minimum, since this KDF gates a household's entire financial history and runs rarely).
+- Use **envelope encryption**: the passphrase-derived key-encryption-key wraps a stored data-encryption-key. Rotating the passphrase re-wraps the stored key — **no full-database re-encryption**. **Built**: `WrappedDataKey`/`DataKeyEnvelope` (AES-GCM).
 - **Never** place the passphrase in an environment variable — it leaks via `inspect`, `/proc`, crash dumps, and logs.
 - **Upgrade path:** because the app only reads a file path, swapping in an external secret store (Vault, cloud KMS) later for hosted/larger books is a deployment change, not a code change.
+- **SQLCipher provider status (2026-07-19): the free prebuilt path assumed by §8 is gone.** `SQLitePCLRaw.bundle_e_sqlcipher` (and `bundle_e_sqlite3mc`) are deprecated upstream as of SQLitePCLRaw 3.0 — the maintainer stopped distributing free prebuilt encrypted-SQLite binaries; both are frozen at 2.1.11 (March 2025) with an explicit "no longer maintained" notice. The actual SQLite-provider swap is deliberately deferred until a path is chosen among: pin the deprecated bundle anyway (free, unmaintained), pay for Zetetic's commercial SQLCipher-for-.NET package (maintained, real cost), or build SQLCipher/SQLite3MC from source (free, real ongoing cross-platform native-build burden). Everything else in this section — KDF, envelope encryption, passphrase-file handling — has no native dependency and is built and tested regardless of which path gets picked.
 
 ---
 
