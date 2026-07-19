@@ -13,14 +13,17 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageVersion>
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
-    <!-- Overrides the vulnerable transitive SQLitePCLRaw.lib.e_sqlite3 2.1.11 that
-         Microsoft.EntityFrameworkCore.Sqlite 10.0.10 pulls in (NU1903, GHSA-2m69-gcr7-jv3q /
-         CVE-2025-6965, CVE-2025-70873 — a bundled-native-SQLite vulnerability). 2.1.12 is the
-         package maintainer's minimal-risk maintenance release: same 2.1.x API surface as
-         everything else in this graph, just the native SQLite build bumped to the patched
-         3.53.3. Remove once EF Core itself picks up a fixed SQLitePCLRaw dependency. -->
-    <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
+    <!-- .Core, not the full package: the full Microsoft.EntityFrameworkCore.Sqlite
+         transitively brings SQLitePCLRaw.bundle_e_sqlite3 (the default, unencrypted
+         native SQLite binary), which would compete with the SQLite3MC bundle below —
+         Microsoft's own docs warn against two SQLitePCLRaw bundles in one project. -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite.Core" Version="10.0.10" />
+    <!-- Encryption at rest (spec §8/§13.5): SQLite3 Multiple Ciphers, not SQLCipher —
+         see design-spec §13.5 for why. MIT licensed, actively maintained by @utelle,
+         monthly release cadence. Bundles are auto-initialized by Microsoft.Data.Sqlite,
+         so this is the only native SQLite provider in the graph once paired with
+         Sqlite.Core above. -->
+    <PackageVersion Include="SQLite3MC.PCLRaw.bundle" Version="2.3.6" />
     <!-- Argon2id KDF for passphrase-derived key custody (spec §13.5). The
          package Argon2's own documentation recommends; no deprecation or
          security notices as of this pin. -->
