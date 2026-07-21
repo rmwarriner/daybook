@@ -1,11 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
-  <!-- Api: thin ASP.NET Core adapter over the Application use cases.
-       Depends inward on Application only for now. When the composition root
-       starts wiring EF/port implementations, it will additionally reference
-       Infrastructure (the outermost layer may compose adapters). -->
+  <!-- Api: thin ASP.NET Core adapter over the Application use cases. Also
+       references Infrastructure directly - the composition root wiring
+       EF/port implementations (here: DaybookDbContext, ApplicationUser),
+       the outermost layer composing adapters, per the note this comment
+       used to carry. -->
   <ItemGroup>
     <ProjectReference Include="..\Daybook.Accounting.Application\Daybook.Accounting.Application.csproj" />
+    <ProjectReference Include="..\Daybook.Accounting.Infrastructure\Daybook.Accounting.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Real ICurrentUser (spec §8): JWT Bearer authentication. -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
   </ItemGroup>
 
 </Project>

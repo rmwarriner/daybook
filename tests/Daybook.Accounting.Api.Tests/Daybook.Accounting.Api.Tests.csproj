@@ -12,10 +12,12 @@
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="AwesomeAssertions" />
     <PackageReference Include="CsCheck" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Daybook.Accounting.Api\Daybook.Accounting.Api.csproj" />
+    <ProjectReference Include="..\..\src\Daybook.Accounting.Infrastructure\Daybook.Accounting.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

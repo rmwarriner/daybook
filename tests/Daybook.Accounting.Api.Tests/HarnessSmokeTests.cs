@@ -1,11 +1,17 @@
 namespace Daybook.Accounting.Api.Tests;
 
-/// <summary>Milestone 0 smoke test: proves the Api test harness is green.</summary>
+/// <summary>Proves the real host — Identity + JWT Bearer wiring included — boots and serves a request.</summary>
 public class HarnessSmokeTests
 {
     [Fact]
-    public void Harness_is_wired_up()
+    public async Task The_host_boots_and_responds()
     {
-        true.Should().BeTrue();
+        await using var factory = new DaybookWebApplicationFactory();
+        await factory.MigrateAsync();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/");
+
+        response.EnsureSuccessStatusCode();
     }
 }
