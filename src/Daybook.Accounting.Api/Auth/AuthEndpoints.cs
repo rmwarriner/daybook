@@ -20,6 +20,7 @@ internal static class AuthEndpoints
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost("/v1/auth/register", RegisterAsync);
+        endpoints.MapPost("/v1/auth/login", LoginAsync);
         return endpoints;
     }
 
@@ -64,8 +65,29 @@ internal static class AuthEndpoints
         await transaction.CommitAsync();
         return Results.Created($"/v1/auth/register/{user.Id}", new RegisterResponse(user.Id));
     }
+
+    private static async Task<IResult> LoginAsync(
+        LoginRequest request, UserManager<ApplicationUser> userManager, JwtTokenFactory tokenFactory)
+    {
+        var user = await userManager.FindByEmailAsync(request.Email);
+
+        // Same response for "no such user" and "wrong password" - a
+        // distinguishable response is a classic user-enumeration side
+        // channel, and it's an easy accidental divergence since they're
+        // genuinely two different code paths.
+        if (user is null || !await userManager.CheckPasswordAsync(user, request.Password))
+        {
+            return Results.Unauthorized();
+        }
+
+        return Results.Ok(new LoginResponse(tokenFactory.CreateToken(user.Id)));
+    }
 }
 
 internal sealed record RegisterRequest(string Email, string Password);
 
 internal sealed record RegisterResponse(Guid UserId);
+
+internal sealed record LoginRequest(string Email, string Password);
+
+internal sealed record LoginResponse(string Token);

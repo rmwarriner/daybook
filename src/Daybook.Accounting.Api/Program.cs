@@ -10,6 +10,14 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Shared by JWT Bearer validation (below) and JwtTokenFactory (issuance) -
+// both sides must read the exact same key bytes.
+static byte[] ReadSigningKeyBytes(IConfiguration configuration)
+{
+    var signingKeyPath = configuration["Daybook:JwtSigningKeyFilePath"] ?? "/run/secrets/jwt_signing_key";
+    return Encoding.UTF8.GetBytes(PassphraseFile.Read(signingKeyPath));
+}
+
 // Real DB-encryption-key bootstrap (read passphrase -> load-or-generate a
 // WrappedDataKey -> unwrap -> UseEncryptedSqlite) is still parked
 // composition-root work - see EncryptedSqliteDbContextOptionsExtensions.
@@ -44,8 +52,7 @@ builder.Services
 builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
     .Configure<IConfiguration>((options, configuration) =>
     {
-        var signingKeyPath = configuration["Daybook:JwtSigningKeyFilePath"] ?? "/run/secrets/jwt_signing_key";
-        var signingKeyBytes = Encoding.UTF8.GetBytes(PassphraseFile.Read(signingKeyPath));
+        var signingKeyBytes = ReadSigningKeyBytes(configuration);
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -61,6 +68,9 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
 
 builder.Services.AddAuthorization();
 builder.Services.AddHttpContextAccessor();
+
+builder.Services.AddSingleton(services =>
+    new JwtTokenFactory(ReadSigningKeyBytes(services.GetRequiredService<IConfiguration>())));
 
 var app = builder.Build();
 
