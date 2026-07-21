@@ -40,7 +40,7 @@
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
     <!-- Assertions: AwesomeAssertions is the free Apache-licensed FluentAssertions
          fork. Do NOT use FluentAssertions >= 8 (commercially licensed). -->
-    <PackageVersion Include="AwesomeAssertions" Version="9.4.0" />
+    <PackageVersion Include="AwesomeAssertions" Version="9.5.0" />
     <!-- Property-based testing (pure C#, no FSharp.Core dependency) -->
     <PackageVersion Include="CsCheck" Version="4.7.0" />
   </ItemGroup>
