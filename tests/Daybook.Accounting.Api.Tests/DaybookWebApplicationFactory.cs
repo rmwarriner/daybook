@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
+using System.Text;
 
+using Daybook.Accounting.Api.Auth;
 using Daybook.Accounting.Infrastructure;
 
 using Microsoft.AspNetCore.Hosting;
@@ -7,6 +9,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Daybook.Accounting.Api.Tests;
 
@@ -33,6 +37,28 @@ public sealed class DaybookWebApplicationFactory : WebApplicationFactory<Program
     {
         await using var scope = Services.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<DaybookDbContext>().Database.MigrateAsync();
+    }
+
+    /// <summary>
+    /// Mints a token signed with this host's real signing key but already
+    /// expired — for proving expiry specifically causes rejection, without
+    /// waiting on the wall clock. Deliberately not <c>JwtTokenFactory</c>
+    /// itself (internal to Api, no InternalsVisibleTo in this codebase by
+    /// convention) — mirrors it directly instead.
+    /// </summary>
+    public string CreateExpiredToken(Guid userId)
+    {
+        var signingKeyBytes = Encoding.UTF8.GetBytes(File.ReadAllText(_signingKeyPath).Trim());
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Issuer = JwtSettings.Issuer,
+            Audience = JwtSettings.Audience,
+            Expires = DateTime.UtcNow.AddMinutes(-1),
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(signingKeyBytes), SecurityAlgorithms.HmacSha256),
+            Claims = new Dictionary<string, object> { [DaybookClaimTypes.UserId] = userId.ToString() },
+        };
+        return new JsonWebTokenHandler().CreateToken(descriptor);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>

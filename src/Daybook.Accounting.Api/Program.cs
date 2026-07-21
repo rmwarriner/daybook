@@ -1,6 +1,7 @@
 using System.Text;
 
 using Daybook.Accounting.Api.Auth;
+using Daybook.Accounting.Application;
 using Daybook.Accounting.Infrastructure;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -68,6 +69,7 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
 
 builder.Services.AddAuthorization();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 
 builder.Services.AddSingleton(services =>
     new JwtTokenFactory(ReadSigningKeyBytes(services.GetRequiredService<IConfiguration>())));
@@ -79,6 +81,7 @@ app.UseAuthorization();
 
 app.MapGet("/", () => "Hello World!");
 app.MapAuthEndpoints();
+app.MapMeEndpoint();
 
 app.Run();
 
