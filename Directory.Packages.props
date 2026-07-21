@@ -24,6 +24,12 @@
          so this is the only native SQLite provider in the graph once paired with
          Sqlite.Core above. -->
     <PackageVersion Include="SQLite3MC.PCLRaw.bundle" Version="2.3.6" />
+    <!-- Real ICurrentUser (spec §8): ASP.NET Core Identity for user storage,
+         JWT Bearer for authenticating requests. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.19.1" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.10" />
     <!-- Argon2id KDF for passphrase-derived key custody (spec §13.5). The
          package Argon2's own documentation recommends; no deprecation or
          security notices as of this pin. -->

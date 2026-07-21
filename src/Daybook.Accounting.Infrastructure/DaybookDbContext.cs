@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace Daybook.Accounting.Infrastructure;
@@ -8,7 +10,14 @@ namespace Daybook.Accounting.Infrastructure;
 /// internal since nothing outside Infrastructure should query them
 /// directly — callers go through the port interfaces instead.
 /// </summary>
-public sealed class DaybookDbContext(DbContextOptions<DaybookDbContext> options) : DbContext(options)
+/// <remarks>
+/// Extends <see cref="IdentityUserContext{TUser,TKey}"/> (users/claims/
+/// logins/tokens, spec §8) rather than plain <c>DbContext</c> or the
+/// role-bearing <c>IdentityDbContext</c> — see <see cref="ApplicationUser"/>
+/// for why roles are deliberately excluded.
+/// </remarks>
+public sealed class DaybookDbContext(DbContextOptions<DaybookDbContext> options)
+    : IdentityUserContext<ApplicationUser, Guid>(options)
 {
     internal DbSet<BookEntity> Books => Set<BookEntity>();
 
@@ -22,6 +31,16 @@ public sealed class DaybookDbContext(DbContextOptions<DaybookDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
+
+        // Identity's AspNetUsers/AspNetUserClaims/... defaults aren't
+        // SQL-Server-specific - just a library naming convention. Renamed
+        // for consistency with this project's plain PascalCase tables.
+        modelBuilder.Entity<ApplicationUser>(user => user.ToTable("Users"));
+        modelBuilder.Entity<IdentityUserClaim<Guid>>(claim => claim.ToTable("UserClaims"));
+        modelBuilder.Entity<IdentityUserLogin<Guid>>(login => login.ToTable("UserLogins"));
+        modelBuilder.Entity<IdentityUserToken<Guid>>(token => token.ToTable("UserTokens"));
+
         modelBuilder.Entity<BookEntity>(book =>
         {
             book.ToTable("Books");
